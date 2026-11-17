@@ -95,9 +95,11 @@ htmx 核心
 
 页面通过 `PageScripts` / `PageStyles` 引入的资产，在 **htmx 局部导航**下不会经过 `<head>` 重写：页面模板必须
 同时渲染 `#yd-page-assets` 声明节点（`data-yd-styles` / `data-yd-scripts`，消息中心、治理页与组件示例页即如此）。
-`yd-app.js` 在每次交换后读取它并按顺序补齐缺失资产，全部脚本结算后广播 `yd:page-assets:loaded`；
-`yd-ui.js` 的 `ydEditor` 监听该事件重试初始化。`window.load` 在局部导航后早已触发，不能作为第二次机会，
-缺少声明节点或事件时，编辑器会一直停在 `textarea`，只有整页刷新才升级。
+`yd-app.js` 在交换**之前**解析响应正文并插入声明里的样式与脚本预取，交换后再按顺序补齐尚未执行的脚本，
+全部脚本结算后广播 `yd:page-assets:loaded`；`yd-ui.js` 的 `ydEditor` 监听该事件重试初始化。`window.load`
+在局部导航后早已触发，不能作为第二次机会，缺少声明节点或事件时，编辑器会一直停在 `textarea`，只有整页刷新才升级。
+声明节点还可带 `data-yd-editor-vendor`（EasyMDE 的同源地址）：交换前会预取该脚本，`yd-message-editor.js`
+在首帧之后的空闲时间预热，因此第一次打开会话或编辑器抽屉时正文与工具栏落在同一帧，不会先画出裸文本域。
 
 **为什么 `yd-ui.js` 必须排在 Alpine 前面**：签入的是 Alpine 的 **CSP 构建**
 （`@alpinejs/csp`），它在脚本执行时**立即启动**，不会等待 `DOMContentLoaded`。组件注册表若排在它之后，
@@ -204,6 +206,76 @@ window.ydUI.CN             // 同 window.ydCN，校验与格式化内核
   也不得内联 `<svg>` 图标。
 - **CSP 兼容**：组件只使用 Alpine CSP 构建支持的表达式子集；不要在页面里写内联 `<script>`、`onclick=`、
   `new Function` 或 `eval`。
+
+### 2.6 主资源与用户资源分层
+
+生成项目的脚本与样式分两层。**主资源**由脚手架维护，`yd sync` 会重新渲染并整份替换（覆盖前备份）；
+**用户资源**由项目拥有，`yd sync` 只在缺失时创建，存在时永不覆盖。主资源升级因此不再要求用户分析、
+合并自己的改动。
+
+| 层 | 文件 | 谁维护 | 是否被 `yd sync` 覆盖 |
+|---|---|---|---|
+| 主脚本 | `web/static/js/yd-app.js` | 脚手架 | 是（备份后） |
+| 用户脚本 | `web/static/js/yd-app.user.js` | 项目 | **否** |
+| 样式入口 | `web/static/css/app.css` | 脚手架 | 是（备份后） |
+| 主样式层 | `web/static/css/yd-main.css`、`components.css`、`ui.css` | 脚手架 | 是（备份后） |
+| 用户样式 | `web/static/css/user.css` | 项目 | **否** |
+
+**装载顺序固定为主资源在前、用户资源在后**：
+
+- 脚本：`… → yd-app.js → yd-app.user.js → PageScripts`；生产期 `bundleScripts` 同样把
+  `yd-app.user.js` 追加在 `yd-app.js` 之后。
+- 样式：`app.css` 先导入 `yd-main.css`（其中导入 `components.css` 与 `ui.css`），最后导入
+  `user.css`。`user.css` 的规则没有放进 `@layer`，因此天然覆盖主资源的 `@layer components`。
+
+**自定义写法**：
+
+```css
+/* web/static/css/user.css */
+:root {
+  --color-surface: #fffdf8;
+  --color-accent: #b45309;
+}
+:root[data-theme="dark"] {
+  --color-surface: #1a1713;
+}
+
+.yd-btn--primary {
+  border-radius: 0.25rem;
+}
+```
+
+覆盖**已有**令牌请用 `:root`，不要用 `@theme`：`@theme` 里的同名变量会被主资源主题层重新写回，
+而 `:root` 规则排在主层之后，运行时一定胜出。`@theme` 仍适合声明**新**令牌以便生成对应工具类。
+
+```js
+// web/static/js/yd-app.user.js（在 yd-app.js 之后执行）
+document.addEventListener("htmx:after:swap", function (event) {
+  var target = (event.detail && event.detail.ctx && event.detail.ctx.target) || event.target;
+  // ...
+});
+```
+
+- 只把项目自己的规则写进用户资源，不要整段复制主资源；复制来的部分会在下一次主资源升级时被替换。
+- 不要直接编辑 `components.css`、`ui.css`、`yd.css`：前两者是逐字节复制的主层，后者是 Tailwind 编译产物。
+- 旧项目第一次执行新版 `yd sync` 时，`yd-main.css` 与两个用户文件会被创建（用户文件缺失时），旧主文件
+  覆盖前备份到 `.yd/backup/`。把备份中的自定义内容迁到 `user.css` / `yd-app.user.js` 即可；
+  `yd sync --dry-run` 会列出 `keep | 保留` 的用户资源。
+
+**强制约束**：
+
+- 两个用户文件的路径与名称固定为 `web/static/js/yd-app.user.js` 与 `web/static/css/user.css`，
+  不得改名、移动或另建同义文件；`tooling/scaffold/layers.go` 的 `IsUserOwned` 与 `yd sync` 按精确路径判断。
+- 用户脚本只依赖 `window.yd`（`ready`、`confirm`、`progress`、`messageEditor`）、`window.ydUI`、
+  `yd.can/hasRole/perms/roles` 与 `htmx:*` / `yd:*` 事件；不得复制 `yd-app.js` 的初始化逻辑，
+  不得另建确认框、进度条、实时连接或重连循环。CSP `script-src 'self'` 下禁止 `eval`、
+  `new Function`、内联脚本与 CDN。
+- 用户样式覆盖已有语义令牌必须用 `:root` / `:root[data-theme="dark"]`；同名 `@theme` 会被主资源
+  主题层写回，只适合声明新令牌。用户规则保持无层，以覆盖 `@layer components`。
+- 新增用户层文件时，必须同批更新 `tooling/scaffold/layers.go`、`yd sync` 守卫、`requiredFiles`、
+  `docs/frontend-ui.md`、生成项目的 `CLAUDE.md` / `AGENTS.md` 与测试；否则视为未完成。
+- 守卫：`TestGeneratedProjectSplitsMainAndUserAssets`、`TestUserOwnedAssetPaths`、
+  `TestSyncKeepsUserOwnedAssets`、`TestGeneratedLayeredStylesCompile`。
 
 ---
 
@@ -561,6 +633,10 @@ HTML 会丢弃或移动嵌套表单，放大镜会跑到输入框之外（组件
 ```
 
 抽屉内省略 `CancelHref`，取消按钮会带 `data-yd-drawer-close` 直接关闭抽屉。
+
+抽屉不在点击时打开：`data-yd-drawer-open` 只发起 `hx-get`，`yd-app.js` 在片段换入后的
+`htmx:before:settle` 才调用 `showModal()`。因此面板滑入的第一帧就带着内容，不会先出现一个空抽屉、
+等响应回来再填充；被取消或返回 4xx 的请求也不会留下空白面板。
 
 ---
 

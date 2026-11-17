@@ -372,3 +372,94 @@ func TestSyncWarnsWhenWAFDisabledButPackageExists(t *testing.T) {
 		t.Fatalf("缺少半移除告警:\n%s", te.errs.String())
 	}
 }
+
+// TestSyncKeepsUserOwnedAssets proves the layered contract: `yd-app.user.js` and `user.css` are
+// created once and later edits survive a full sync, while the main asset of the same kind is restored.
+// The user layer must also be recreated when missing, so an upgraded old project gains the two files.
+// | TestSyncKeepsUserOwnedAssets 验证分层契约：`yd-app.user.js` 与 `user.css` 只创建一次，之后的
+// 修改在全量同步中保留；同类型的主资源照常恢复。用户层缺失时也会补建，旧项目升级后因此获得这两个文件。
+func TestSyncKeepsUserOwnedAssets(t *testing.T) {
+	fs, dir := syncFixture(t)
+	userJS := dir + "/web/static/js/yd-app.user.js"
+	userCSS := dir + "/web/static/css/user.css"
+	mainJS := dir + "/web/static/js/yd-app.js"
+	syncWrite(t, fs, userJS, "// CUSTOM USER JS\n")
+	syncWrite(t, fs, userCSS, "/* CUSTOM USER CSS */\n")
+	originalMain := syncRead(t, fs, mainJS)
+	syncWrite(t, fs, mainJS, originalMain+"\n// CUSTOM MAIN\n")
+
+	te := newTestEnv(t, fs, "", false)
+	if err := Execute(context.Background(), []string{
+		"sync", "--dir", dir, "--yes", "--go=false", "--assets=false",
+	}, te.env); err != nil {
+		t.Fatalf("sync: %v\n%s", err, te.out.String())
+	}
+	if got := syncRead(t, fs, userJS); !strings.Contains(got, "CUSTOM USER JS") {
+		t.Fatalf("yd-app.user.js was overwritten | yd-app.user.js 被覆盖")
+	}
+	if got := syncRead(t, fs, userCSS); !strings.Contains(got, "CUSTOM USER CSS") {
+		t.Fatalf("user.css was overwritten | user.css 被覆盖")
+	}
+	if got := syncRead(t, fs, mainJS); got != originalMain {
+		t.Fatalf("yd-app.js was not restored | yd-app.js 未恢复")
+	}
+	if !strings.Contains(te.out.String(), "keep | 保留") {
+		t.Fatalf("sync did not report the kept user assets | 同步未报告保留的用户资源:\n%s", te.out.String())
+	}
+
+	if err := fs.Remove(userCSS); err != nil {
+		t.Fatalf("remove user.css: %v | 删除 user.css 失败", err)
+	}
+	te = newTestEnv(t, fs, "", false)
+	if err := Execute(context.Background(), []string{
+		"sync", "--dir", dir, "--yes", "--go=false", "--assets=false",
+	}, te.env); err != nil {
+		t.Fatalf("sync after removing user.css: %v\n%s", err, te.out.String())
+	}
+	if ok, err := afero.Exists(fs, userCSS); err != nil || !ok {
+		t.Fatalf("sync did not recreate the missing user.css (exists=%v err=%v) | 同步未补建缺失的 user.css（exists=%v err=%v）", ok, err, ok, err)
+	}
+	if got := syncRead(t, fs, userCSS); strings.TrimSpace(got) == "" {
+		t.Fatalf("recreated user.css is empty | 补建的 user.css 为空")
+	}
+	if got := syncRead(t, fs, userJS); !strings.Contains(got, "CUSTOM USER JS") {
+		t.Fatalf("recreating user.css overwrote yd-app.user.js | 补建 user.css 时覆盖了 yd-app.user.js")
+	}
+}
+
+// TestSyncReportsAlreadyCurrentWhenOnlyUserAssetsAreKept guards the no-op message: a plan made only
+// of kept user assets must not be mistaken for a configuration-baseline write.
+// | TestSyncReportsAlreadyCurrentWhenOnlyUserAssetsAreKept 固定无操作提示：只含保留用户资源的计划
+// 不能被误判为配置基线写入。
+func TestSyncReportsAlreadyCurrentWhenOnlyUserAssetsAreKept(t *testing.T) {
+	fs, dir := syncFixture(t)
+	userJS := dir + "/web/static/js/yd-app.user.js"
+	userCSS := dir + "/web/static/css/user.css"
+	syncWrite(t, fs, userJS, "// CUSTOM USER JS\n")
+	syncWrite(t, fs, userCSS, "/* CUSTOM USER CSS */\n")
+
+	te := newTestEnv(t, fs, "", false)
+	if err := Execute(context.Background(), []string{
+		"sync", "--dir", dir, "--yes", "--go=false", "--assets=false",
+	}, te.env); err != nil {
+		t.Fatalf("sync: %v\n%s", err, te.out.String())
+	}
+	// The first run records the configuration baseline; the second one has only kept user assets
+	// left to report. | 第一次运行记录配置基线；第二次才只剩保留的用户资源需要报告。
+	te = newTestEnv(t, fs, "", false)
+	if err := Execute(context.Background(), []string{
+		"sync", "--dir", dir, "--yes", "--go=false", "--assets=false",
+	}, te.env); err != nil {
+		t.Fatalf("second sync: %v\n%s", err, te.out.String())
+	}
+	out := te.out.String()
+	if !strings.Contains(out, "keep | 保留") {
+		t.Fatalf("sync did not report the kept user assets | 同步未报告保留的用户资源:\n%s", out)
+	}
+	if !strings.Contains(out, "already current | 已是最新: scaffold files match") {
+		t.Fatalf("sync did not take the ordinary already-current path:\n%s", out)
+	}
+	if strings.Contains(out, "config baseline recorded") || strings.Contains(out, "config baseline would be recorded") {
+		t.Fatalf("kept user assets were mistaken for a baseline write:\n%s", out)
+	}
+}

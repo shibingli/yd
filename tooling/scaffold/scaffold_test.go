@@ -168,8 +168,11 @@ var requiredFiles = []string{
 	"web/static/css/app.css",
 	"web/static/css/components.css",
 	"web/static/css/ui.css",
+	"web/static/css/user.css",
+	"web/static/css/yd-main.css",
 	"web/static/img/icons.svg",
 	"web/static/js/yd-app.js",
+	"web/static/js/yd-app.user.js",
 	"web/templates/components/chart.html",
 	"web/templates/components/cn.html",
 	"web/templates/components/data.html",
@@ -537,22 +540,31 @@ func TestGenerateTailwindAddsCssEntry(t *testing.T) {
 	on := scaffold.DefaultOptions("css-on")
 	on.Tailwind = true
 	prOn, _ := generateMem(t, on)
-	css := prOn.read("web/static/css/app.css")
-	for _, want := range []string{`@import "tailwindcss" source(none)`, "@theme", "--color-brand-600"} {
-		if !strings.Contains(css, want) {
-			t.Errorf("开启 Tailwind 时 app.css 缺少 %q:\n%s", want, css)
+	entry := prOn.read("web/static/css/app.css")
+	for _, want := range []string{`@import "tailwindcss" source(none)`, `@import "./yd-main.css"`, `@import "./user.css"`} {
+		if !strings.Contains(entry, want) {
+			t.Errorf("开启 Tailwind 时 app.css 缺少 %q:\n%s", want, entry)
+		}
+	}
+	main := prOn.read("web/static/css/yd-main.css")
+	for _, want := range []string{`@import "./components.css"`, `@import "./ui.css"`, "@theme", "--color-brand-600"} {
+		if !strings.Contains(main, want) {
+			t.Errorf("开启 Tailwind 时 yd-main.css 缺少 %q:\n%s", want, main)
 		}
 	}
 
 	off := scaffold.DefaultOptions("css-off")
 	off.Tailwind = false
 	prOff, _ := generateMem(t, off)
-	cssOff := prOff.read("web/static/css/app.css")
-	if strings.Contains(cssOff, `@import "tailwindcss"`) {
-		t.Errorf("关闭 Tailwind 时 app.css 不应含 Tailwind 入口:\n%s", cssOff)
+	entryOff := prOff.read("web/static/css/app.css")
+	if strings.Contains(entryOff, `@import "tailwindcss"`) {
+		t.Errorf("关闭 Tailwind 时 app.css 不应含 Tailwind 入口:\n%s", entryOff)
 	}
-	if cssOff == "" {
-		t.Error("app.css must not be empty while Tailwind is off (a minimal base stylesheet is required) | 关闭 Tailwind 时 app.css 不应为空（需提供最小基础样式）")
+	if !strings.Contains(entryOff, `@import "./yd-main.css"`) || !strings.Contains(entryOff, `@import "./user.css"`) {
+		t.Errorf("关闭 Tailwind 时 app.css 仍必须装配主层与用户层:\n%s", entryOff)
+	}
+	if mainOff := prOff.read("web/static/css/yd-main.css"); strings.TrimSpace(mainOff) == "" {
+		t.Error("yd-main.css must not be empty while Tailwind is off (a minimal base stylesheet is required) | 关闭 Tailwind 时 yd-main.css 不应为空（需提供最小基础样式）")
 	}
 }
 
@@ -1148,7 +1160,7 @@ func TestGeneratedPortalAndManagementShareOneComponentLayer(t *testing.T) {
 	// 治理页承载编辑与新建公告抽屉，两者都含 EasyMDE 编辑器。外壳交换不会重写 <head>，页面必须声明
 	// yd-app.js 读取的惰性资产节点；缺少它时抽屉编辑器要整页刷新才会升级。
 	adminPage := pr.read("web/templates/mgr/pages/message_admin.html")
-	for _, want := range []string{`id="yd-page-assets"`, "data-yd-styles=", "data-yd-scripts="} {
+	for _, want := range []string{`id="yd-page-assets"`, "data-yd-editor-vendor=", "data-yd-styles=", "data-yd-scripts="} {
 		if !strings.Contains(adminPage, want) {
 			t.Errorf("message_admin.html lacks %q; its drawer editors never initialise after an htmx navigation | message_admin.html 缺少 %q；htmx 导航后抽屉编辑器不会初始化", want, want)
 		}
@@ -4435,10 +4447,10 @@ func TestGeneratedUILoadsAlpineAndTheKitInOrder(t *testing.T) {
 		}
 	}
 
-	app := pr.read("web/static/css/app.css")
+	app := pr.read("web/static/css/yd-main.css")
 	for _, want := range []string{`@import "./components.css"`, `@import "./ui.css"`} {
 		if !strings.Contains(app, want) {
-			t.Errorf("generated app.css lacks %q | 生成的 app.css 缺少 %q", want, want)
+			t.Errorf("generated yd-main.css lacks %q | 生成的 yd-main.css 缺少 %q", want, want)
 		}
 	}
 
@@ -4646,7 +4658,7 @@ func TestGenerateThemeBootAndAutoTokens(t *testing.T) {
 		}
 	}
 
-	cssBody := pr.read("web/static/css/app.css")
+	cssBody := pr.read("web/static/css/yd-main.css")
 	for _, want := range []string{
 		`@media (prefers-color-scheme: dark)`,
 		":root[data-theme=\"auto\"]",
@@ -4655,7 +4667,7 @@ func TestGenerateThemeBootAndAutoTokens(t *testing.T) {
 		"--color-accent: #e07a63;",
 	} {
 		if !strings.Contains(cssBody, want) {
-			t.Errorf("generated app.css auto block is missing %q | 生成的 app.css auto 深色块缺少 %q", want, want)
+			t.Errorf("generated yd-main.css auto block is missing %q | 生成的 yd-main.css auto 深色块缺少 %q", want, want)
 		}
 	}
 }
@@ -4700,6 +4712,7 @@ func TestGeneratedAppRepairsAlpineScopes(t *testing.T) {
 		"function reviveDestroyedScopes(root)",
 		`"[x-data]"`,
 		`"htmx:before:swap"`,
+		`"htmx:after:history:update"`,
 		"function syncTopbarOffset()",
 		`"--yd-topbar-offset"`,
 	} {
@@ -5176,6 +5189,10 @@ func TestGeneratedMessageCentreUsesInlineNewConversationPanel(t *testing.T) {
 		`partials/messages/contacts`,
 		"lucide-message-square",
 		"lucide-users",
+		// The editor address lives on the asset declaration so the idle warm-up can fetch EasyMDE
+		// before the first conversation opens; without it the composer paints as a bare textarea first.
+		// 编辑器地址挂在资产声明上，空闲预热才能在第一次打开会话前取到 EasyMDE；缺少它时撰写区先画出裸文本域。
+		"data-yd-editor-vendor=",
 	} {
 		if !strings.Contains(messages, want) {
 			t.Errorf("messages.html 缺少 %q", want)

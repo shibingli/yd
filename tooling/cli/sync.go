@@ -106,6 +106,10 @@ type syncPlan struct {
 	Config *syncConfigPlan
 	// Files are the adds and overwrites, sorted by path. | Files 是按路径排序的新增与覆盖。
 	Files []syncFile
+	// Kept lists existing user-owned files that are deliberately left untouched. They are not
+	// writes, so they stay out of Files and every backup/apply/rollback path. | Kept 列出被有意保留的
+	// 已存在用户资源；它们不是写入项，因此不进入 Files 与任何备份/应用/回滚路径。
+	Kept []string
 	// Unchanged counts rendered files already identical to the project. | Unchanged 统计已与项目一致的
 	// 渲染文件。
 	Unchanged int
@@ -129,12 +133,17 @@ func (p *syncPlan) onlyConfigBaseline() bool {
 	if p == nil || len(p.Files) == 0 {
 		return false
 	}
+	sawBaseline := false
 	for _, file := range p.Files {
 		if file.Rel != syncConfigBaselineRel {
 			return false
 		}
+		sawBaseline = true
 	}
-	return true
+	// A plan made only of kept user assets has no Files and therefore falls through to the ordinary
+	// "already current" path, never claiming that a configuration baseline was recorded. | 只含保留
+	// 用户资源的计划没有 Files，因此会走普通的“已是最新”分支，不会声称记录了配置基线。
+	return sawBaseline
 }
 
 func init() {
@@ -211,6 +220,7 @@ func runSync(ctx context.Context, env *Env) error {
 		// historical no-op exit status for CI while still enabling future three-way merges. |
 		// 记录派生基线属于内部簿记而不是项目更新；保持 CI 上原有的无操作退出状态，同时让后续三方
 		// 合并可用。
+		printSyncKept(env, plan)
 		printSyncConfigReport(env, plan.Config)
 		if dry {
 			fmt.Fprintln(env.Out, "already current | 已是最新: config baseline would be recorded | 将记录配置基线")
@@ -223,6 +233,7 @@ func runSync(ctx context.Context, env *Env) error {
 		return nil
 	}
 	if adds == 0 && overwrites == 0 && !upgradeGo && !upgradeAssets {
+		printSyncKept(env, plan)
 		printSyncConfigReport(env, plan.Config)
 		fmt.Fprintln(env.Out, "already current | 已是最新: scaffold files match and dependency upgrades are disabled")
 		return nil
@@ -230,6 +241,7 @@ func runSync(ctx context.Context, env *Env) error {
 
 	backupPath := syncBackupPath(env.FS, dir)
 	printSyncWarning(env, plan, upgradeGo, upgradeAssets, dry, backupPath)
+	printSyncKept(env, plan)
 	printSyncFiles(env, plan, dry)
 	printSyncConfigReport(env, plan.Config)
 	if dry {
@@ -386,6 +398,21 @@ func buildSyncPlan(fs afero.Fs, dir string, rendered map[string][]byte, configPl
 	sort.Strings(rels)
 	plan := &syncPlan{Config: configPlan}
 	for _, rel := range rels {
+		/* User resources are created only when missing and otherwise left untouched, so a main-resource
+		   upgrade needs no analysis or merge of the user's own files.
+		   用户资源只在缺失时创建，存在时原样保留：主资源升级因此不需要用户分析与合并自己的文件。 */
+		if scaffold.IsUserOwned(rel) {
+			exists, err := afero.Exists(fs, filepath.Join(dir, filepath.FromSlash(rel)))
+			if err != nil {
+				return nil, errs.WrapDetail(err, ErrSyncApply, "stat %[1]s | 检查 %[1]s", rel)
+			}
+			if exists {
+				plan.Kept = append(plan.Kept, rel)
+				continue
+			}
+			plan.Files = append(plan.Files, syncFile{Rel: rel, Content: rendered[rel], Kind: syncAdd})
+			continue
+		}
 		switch rel {
 		case "go.mod", "go.sum", syncConfigBaseRel:
 			continue
@@ -454,6 +481,18 @@ func syncManifestEqual(existing, rendered []byte) bool {
 	return bytes.Equal(ab, bb)
 }
 
+// syncOverwritesMainAssets reports whether the plan replaces one of the main front-end assets whose
+// local edits belong in the user layers. | syncOverwritesMainAssets 报告计划是否替换了某个主前端资源；
+// 对这些资源的本地修改应放进用户资源层。
+func syncOverwritesMainAssets(plan *syncPlan) bool {
+	for _, file := range plan.Files {
+		if file.Kind == syncOverwrite && scaffold.IsMainAsset(file.Rel) {
+			return true
+		}
+	}
+	return false
+}
+
 // readProjectFile reads one project-relative file. | readProjectFile 读取一个项目相对文件。
 func readProjectFile(fs afero.Fs, dir, rel string) ([]byte, bool, error) {
 	data, err := afero.ReadFile(fs, filepath.Join(dir, filepath.FromSlash(rel)))
@@ -480,6 +519,12 @@ func printSyncWarning(env *Env, plan *syncPlan, upgradeGo, upgradeAssets, dry bo
 	if overwrites > 0 {
 		fmt.Fprintln(env.Out, "The overwrite set includes generated scaffold files; local edits to those files will be replaced. | 覆盖集合包含脚手架生成文件；这些文件中的本地修改会被替换。")
 	}
+	if syncOverwritesMainAssets(plan) {
+		fmt.Fprintf(env.Out,
+			"main assets are being upgraded: move local edits from %[1]s into %[2]s (user-owned files are never overwritten) | 主资源正在升级：请把 %[1]s 中的本地修改迁移到 %[2]s（用户资源文件永不被覆盖）\n",
+			strings.Join(scaffold.MainAssetPaths(), ", "),
+			strings.Join(scaffold.UserOwnedPaths(), ", "))
+	}
 	if overwrites > 0 || upgradeGo || upgradeAssets {
 		fmt.Fprintf(env.Out, "A backup will be written to %s before any file is replaced or upgraded. | 覆盖或升级前会备份到 %s。\n", backupPath, backupPath)
 	}
@@ -495,6 +540,14 @@ func printSyncWarning(env *Env, plan *syncPlan, upgradeGo, upgradeAssets, dry bo
 	}
 	if !dry && !flagBool(syncFlags, flagSyncYes) {
 		fmt.Fprintln(env.Out, "Use --dry-run to inspect the complete plan; --yes skips the prompt. | 可用 --dry-run 查看完整计划；--yes 跳过确认。")
+	}
+}
+
+// printSyncKept reports the user-owned files the plan leaves untouched. | printSyncKept 报告计划中原样保留的
+// 用户资源文件。
+func printSyncKept(env *Env, plan *syncPlan) {
+	if len(plan.Kept) > 0 {
+		fmt.Fprintf(env.Out, "keep | 保留  user-owned assets: %s\n", strings.Join(plan.Kept, ", "))
 	}
 }
 

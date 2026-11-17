@@ -84,8 +84,8 @@ func applySyncPlan(env *Env, dir string, plan *syncPlan) error {
 	if err := applySyncFiles(env, dir, plan); err != nil {
 		return err
 	}
-	_, overwrites := plan.counts()
-	fmt.Fprintf(env.Out, "scaffold synced | 脚手架已同步: %d added | 新增, %d overwritten | 覆盖\n", len(plan.Files)-overwrites, overwrites)
+	adds, overwrites := plan.counts()
+	fmt.Fprintf(env.Out, "scaffold synced | 脚手架已同步: %d added | 新增, %d overwritten | 覆盖, %d user-owned kept | 用户资源保留\n", adds, overwrites, len(plan.Kept))
 	return nil
 }
 

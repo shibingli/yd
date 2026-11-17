@@ -144,6 +144,11 @@
 <script src="{{ asset "/static/js/yd-captcha.js" }}" defer></script>
 {{- end }}
 <script src="{{ asset "/static/js/yd-app.js" }}" defer></script>
+{{- /* 用户资源层排在主脚本之后，项目因此只需依赖主资源公开的 window.yd 与页面事件；主脚本升级时
+       不会与它产生合并冲突。 | The user resource layer follows the main script, so a project only
+       depends on the public window.yd surface and page events; a main-script upgrade never conflicts
+       with it. */}}
+<script src="{{ asset "/static/js/yd-app.user.js" }}" defer></script>
 {{- end }}
 {{- range .PageScripts }}
 <script src="{{ asset . }}" defer></script>

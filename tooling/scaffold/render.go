@@ -204,6 +204,11 @@ func bundleScriptsFor(exts []string) []string {
 		"/static/js/yd-progress.js",
 		"/static/js/yd-captcha.js",
 		"/static/js/yd-app.js",
+		/* The user resource layer must follow the main script: project behaviour only depends on the
+		   public window.yd surface and page events, so a main-resource upgrade needs no merge with it.
+		   用户资源层必须排在主脚本之后：项目自己的交互只依赖主资源公开的 window.yd 与页面事件，
+		   主资源升级因此不需要与它合并。 */
+		UserScriptURL,
 	)
 	return scripts
 }

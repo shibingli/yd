@@ -11,10 +11,11 @@
   all move into the right-hand drawer, so the table no longer stacks six forms and the page does not carry one
   hidden form per row.
 
-  编辑按钮带 data-yd-drawer-open 与 hx-get：点击时抽屉立即打开，片段换入 #yd-drawer-body；提交成功后
-  yd-app.js 关闭抽屉，列表照常由服务端刷新。
-  The edit button carries data-yd-drawer-open and hx-get: the drawer opens at once, the fragment swaps into
-  #yd-drawer-body, and after a successful submit yd-app.js closes it while the list refreshes server-side.
+  编辑按钮带 data-yd-drawer-open 与 hx-get：片段换入 #yd-drawer-body 的那次交换同时打开抽屉，
+  面板不会先空着滑入；提交成功后 yd-app.js 关闭抽屉，列表照常由服务端刷新。
+  The edit button carries data-yd-drawer-open and hx-get: the swap that brings the fragment into
+  #yd-drawer-body opens the drawer as one step, so the panel never slides in empty first; after a
+  successful submit yd-app.js closes it while the list refreshes server-side.
 */}}
 {{- define "mgr/partials/users/row" -}}
 {{- $id := .User.ID -}}

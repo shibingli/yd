@@ -171,11 +171,15 @@ func TestGeneratedStylesDefineEveryYdClassUsedByTemplates(t *testing.T) {
 	p, _ := generateMem(t, o)
 
 	css := p.read("web/static/css/app.css")
-	if p.exists("web/static/css/components.css") {
-		css += "\n" + p.read("web/static/css/components.css")
-	}
-	if p.exists("web/static/css/ui.css") {
-		css += "\n" + p.read("web/static/css/ui.css")
+	for _, rel := range []string{
+		"web/static/css/yd-main.css",
+		"web/static/css/user.css",
+		"web/static/css/components.css",
+		"web/static/css/ui.css",
+	} {
+		if p.exists(rel) {
+			css += "\n" + p.read(rel)
+		}
 	}
 	defined := scaffoldCSSDefinitions(css)
 	if len(defined) == 0 {

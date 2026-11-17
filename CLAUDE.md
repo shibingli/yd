@@ -689,7 +689,8 @@ yd sync                        # 生成项目：模板 + Go 模块 + 前端资�
   统计与覆盖清单，交互确认后才写入；非交互必须 `--yes`，`--dry-run` 只打印计划。被覆盖文件备份到
   `.yd/backup/sync-<UTC>/`，`go.mod` / `go.sum` **不被覆盖**；默认随后升级 Go 模块与前端资产
   （同大版本 + 强制重新下载）。同步不删除项目多出的文件；模板来源是**运行中的 yd 二进制**，需要最新
-  脚手架时先执行 `yd versions upgrade --self`。
+  脚手架时先执行 `yd versions upgrade --self`。用户资源（`web/static/js/yd-app.user.js` 与
+  `web/static/css/user.css`）缺失时创建、存在时报告 `keep | 保留`，边界见 §22.9。
 - **配置同步（强制模型）**：`configs/config.yaml` 是生成基线，个人值与密钥写
   `configs/config.local.yaml`（不入库、优先级更高）；`yd new` 把生成基线写入
   `.yd/config.baseline.yaml`。`yd sync --config-mode=auto` 在存在基线时执行三方合并：用户改过的值
@@ -784,14 +785,16 @@ yd sync                        # 生成项目：模板 + Go 模块 + 前端资�
 
 ### 22.3 Tailwind v4 与主题
 
-- **所有项目样式继承 Tailwind v4**：`app.css` 必须 `@import "tailwindcss"`，设计令牌写在 `@theme`，
-  项目与框架组件写在 `@layer components`；可复用工具类用 `@apply` 引入，组件自身几何尺寸才写普通声明。
+- **所有项目样式继承 Tailwind v4**：`app.css` 必须 `@import "tailwindcss"` 并按
+  `yd-main.css → user.css` 的顺序导入主层与用户层；框架设计令牌写进 `yd-main.css` 的 `@theme`，
+  项目覆盖写 `user.css`（已有令牌用 `:root`，不要用同名 `@theme`）。主层与框架组件写在
+  `@layer components`；可复用工具类用 `@apply` 引入，组件自身几何尺寸才写普通声明。
 - **颜色只来自语义令牌**：浅色/深色/跟随系统三态由 `<html data-theme>` 承载，暗色只重写令牌；
   禁止在令牌块之外写颜色字面量（守卫 `TestNoHardcodedColorsInAppCSS`）。
 - **原生控件也要适配**：`:root` / `[data-theme="dark"]` / `auto` 三处声明 `color-scheme`，
   `dialog`、`select`、滚动条与焦点环随主题切换。
 - **主题切换按钮保持高对比**：使用 `.yd-theme-toggle` 的实心表面与内容色，不得只依赖 ghost 变体。
-- **Tailwind 扫描范围必须包含脚本**：`app.css` 的 `@source` 除模板与 Go 外，还要覆盖 `static/js/yd-*.js`；
+- **Tailwind 扫描范围必须包含脚本**：`yd-main.css` 的 `@source` 除模板与 Go 外，还要覆盖 `static/js/yd-*.js`；
   脚本在运行期添加的类（如编辑器的 `yd-editor--dark`、侧栏的 `yd-sidebar-open`）若不在扫描范围内，
   Tailwind 会把它们裁掉，表现为暗色编辑区仍是白底。不得扫描整个 vendor 目录（体积与产物不确定）。
 - **第三方 CSS 的覆盖必须放在层外**：EasyMDE 等 vendor CSS 是无层的；写在 `@layer components` 里的规则
@@ -932,6 +935,37 @@ yd sync                        # 生成项目：模板 + Go 模块 + 前端资�
 - **使用文档**：`docs/middleware-metrics.md` 是接口、自定义指标、生命周期与检查清单的唯一入口。
 - **禁止事项**：不得为每个请求创建 `Entry`/直方图，不得在请求路径取注册表写锁，不得用 `Use` 装配后再
   另补一套统计，不得在关闭后重新置为 `active`。
+
+### 22.9 主资源与用户资源分层（强制）
+
+生成项目的脚本与样式分两层：**主资源**由脚手架维护，`yd sync` 重新渲染并覆盖（覆盖前备份到
+`.yd/backup/`）；**用户资源**由项目拥有，`yd sync` 只在缺失时创建，存在时永不覆盖。主资源升级因此
+不得再要求用户分析、合并自己的改动。
+
+- **主资源**：`web/static/js/yd-app.js`、`web/static/css/app.css`、`web/static/css/yd-main.css`、
+  `web/static/css/components.css`、`web/static/css/ui.css`。这些文件只允许由脚手架模板产生，
+  业务定制禁止写在这里。
+- **用户资源**：`web/static/js/yd-app.user.js`、`web/static/css/user.css`。项目的一切脚本/样式定制
+  必须写在这两个文件里；不得改名、移动或另建同义文件——`tooling/scaffold/layers.go` 的
+  `IsUserOwned` 与 `yd sync` 按这两个精确路径判断归属。
+- **加载/导入顺序固定**：脚本 `… → yd-app.js → yd-app.user.js → PageScripts`，生产 bundle 也把用户
+  脚本追加在 `yd-app.js` 之后；样式由 `app.css` 先导入 `yd-main.css`（其中导入 `components.css` /
+  `ui.css`），最后导入 `user.css`。不得把用户资源插到主资源之前。
+- **CSS 约束**：覆盖已有语义令牌用 `:root` / `:root[data-theme="dark"]`，不得用同名 `@theme`
+  （主资源主题层会写回同名变量）；`@theme` 只用于声明新令牌；不得把主资源样式整段复制进 `user.css`；
+  不得编辑 `yd.css`（Tailwind 产物）或 `components.css` / `ui.css`（主层副本）；`user.css` 的规则保持
+  无层，以覆盖 `@layer components`。
+- **JS 约束**：只依赖主资源公开的 `window.yd`（`ready`、`confirm`、`progress`、`messageEditor` 等）、
+  `window.ydUI`、`yd.can/hasRole/perms/roles` 与页面事件（`htmx:*`、`yd:*`）；不得复制 `yd-app.js` 的
+  初始化逻辑，不得另建确认框、进度条、实时连接或重连循环；用户脚本在 `yd-app.js` 之后执行，
+  CSP `script-src 'self'` 下不得使用 `eval` / `new Function` / 内联脚本 / CDN。
+- **同步语义**：`yd sync` 对用户资源输出 `keep | 保留`（缺失时 `add | 新增`），摘要报告
+  `N user-owned kept`；`yd sync --dry-run` 必须能预览。旧项目第一次同步时主文件先备份，用户需把
+  备份中的定制迁入用户资源；`yd sync` 不得删除、覆盖或重命名用户资源。
+- **新增用户层文件**：必须同时更新 `tooling/scaffold/layers.go`、`yd sync` 守卫、`requiredFiles`、
+  `docs/frontend-ui.md` 与生成项目的 `CLAUDE.md` / `AGENTS.md`，并补充测试；否则视为未完成。
+- **守卫**：`TestGeneratedProjectSplitsMainAndUserAssets`、`TestUserOwnedAssetPaths`、
+  `TestSyncKeepsUserOwnedAssets`、`TestGeneratedLayeredStylesCompile` 必须通过。
 
 ## 23. 站内消息中心（强制）
 

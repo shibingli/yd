@@ -1,0 +1,40 @@
+/* {{ .Name }} 用户样式层（用户资源）：这个文件属于你，`yd sync` 永不覆盖。
+   {{ .Name }} user stylesheet layer (user resource): this file belongs to you; `yd sync` never overwrites it.
+
+   它由 app.css 最后导入，排在 yd-main.css 之后，因此这里的规则可以覆盖主资源的主题与组件样式。
+   主资源升级只替换 yd-main.css / components.css / ui.css，不会碰这个文件；把自定义内容写在这里即可，
+   不需要再分析、合并主资源。
+   It is imported last by app.css, after yd-main.css, so rules here can override the main resource's theme
+   and component styles. A main-resource upgrade only replaces yd-main.css / components.css / ui.css and
+   never touches this file; put customizations here and stop analysing or merging the main resources.
+
+   常用写法 | Common patterns
+
+   1. 覆盖已有主题变量。用 :root 而不是 @theme：@theme 里的同名变量会被主资源的主题层重新写回，
+      :root 规则排在主层之后，运行时一定胜出（深色与跟随系统各自再覆盖一次）：
+      Override an existing theme token. Use :root rather than @theme: a same-named @theme variable is
+      rewritten by the main resource's theme layer, while :root rules come after the main layer and
+      always win at runtime (repeat for dark and system where needed):
+      :root {
+        --color-surface: #fffdf8;
+        --color-accent: #b45309;
+      }
+      :root[data-theme="dark"] {
+        --color-surface: #1a1713;
+      }
+
+   2. 覆盖组件样式。这里的规则没有放进 @layer，因此天然胜过主资源的 @layer components：
+      Override a component. These rules are unlayered and therefore beat the main resource's
+      @layer components by default:
+      .yd-btn--primary {
+        border-radius: 0.25rem;
+      }
+
+   3. 让 Tailwind 扫描你新增的模板或脚本类名：
+      Let Tailwind scan class names from your own templates or scripts:
+      @source "../../templates/custom";
+
+   注意：这里只写项目自己的规则，不要把主资源整段复制进来；主资源升级会覆盖复制来的部分。
+   Note: keep only project-specific rules here; do not paste the main resource in bulk, because a main
+   resource upgrade would replace the pasted parts.
+*/

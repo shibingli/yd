@@ -24,7 +24,15 @@
      navigation never rewrites <head>; yd-app.js therefore reads this element after a swap and loads the missing scripts
      in order, so entering the message centre from the friends page still gets the editor. */}}
 {{- if or .PageStyles .PageScripts }}
-<div id="yd-page-assets" hidden
+{{/* 编辑器地址同时挂在资产声明上：没有选中会话时页面里还没有编辑器包装元素，但可撰写的用户随时可能
+     打开会话，空闲预热据此提前取一次 EasyMDE，第一次打开会话时工具栏与正文同帧出现。只读访客看不到
+     撰写区，因此不声明该地址，不为一份永远用不到的 320 KB 付费。 |
+     The editor address also sits on the asset declaration: with no conversation selected the page carries
+     no editor wrapper yet, while a user who can compose may open one at any moment. The idle warm-up reads
+     it here and fetches EasyMDE ahead of time, so the first conversation open paints the toolbar and body
+     in one frame. Read-only visitors never get a composer, so the address is omitted for them and they do
+     not pay for 320 KB they can never use. */}}
+<div id="yd-page-assets" hidden{{ if or .CanSend .CanSystem }} data-yd-editor-vendor="{{ asset "/static/js/vendored/easymde.min.js" }}"{{ end }}
      data-yd-styles="{{ range .PageStyles }}{{ asset . }} {{ end }}"
      data-yd-scripts="{{ range .PageScripts }}{{ asset . }} {{ end }}"></div>
 {{- end }}

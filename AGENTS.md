@@ -125,8 +125,10 @@
       状态为 `registered → active → stopped`，关闭后计数保留且不得翻回 active；请求指标只走原子操作，
       panic 只由最内层观察者计数并重抛；管理概览只经一条 WebSocket `/mgr/ws/metrics` 每 5 秒接收系统资源与
       中间件两块片段，不得再写 HTTP 轮询或重同步。详见 `docs/middleware-metrics.md`。
-- [ ] **Tailwind v4 分层**：所有项目样式必须建立在 Tailwind v4 之上——`@import "tailwindcss"`、
-      `@theme` 语义令牌、`@layer components`；可复用工具类用 `@apply`，颜色不得在令牌块之外写字面量。
+- [ ] **Tailwind v4 分层**：所有项目样式必须建立在 Tailwind v4 之上——`app.css` 的
+      `@import "tailwindcss"` 之后按 `yd-main.css → user.css` 导入；框架语义令牌在 `yd-main.css` 的
+      `@theme`，项目覆盖在 `user.css`（已有令牌用 `:root`，不要同名 `@theme`）；可复用工具类用
+      `@apply`，颜色不得在令牌块之外写字面量。
 - [ ] **交互约定**：新增/编辑走右侧抽屉（`#yd-drawer`），列表右侧操作统一为一个图标按钮
       （`lucide-more-horizontal`，`aria-label` 取自 `ui.actions`）展开 `details.yd-menu`，不得并排文字按钮；
       顶栏租户切换复用同一套面板与条目样式（不用原生 select 呈现租户选项）；所有变更动作（退出、删除、启停、
@@ -236,6 +238,32 @@
 - **守卫**：`go test ./tooling/scaffold/... -run TestGeneratedTemplatesUseComponentFormControls` 与
   `/ui-kit` 组件覆盖测试必须通过；新增组件必须同批补组件示例、测试、文档与压缩资产。
   违反本节的页面视为未完成。
+
+## 3.2 主资源与用户资源分层（强制）
+
+生成项目的脚本与样式分主资源（脚手架维护，`yd sync` 覆盖）与用户资源（项目拥有，永不覆盖）。
+项目自定义只能写进用户资源；主资源升级时不得要求用户手工分析、合并。
+
+- **主资源**：`web/static/js/yd-app.js`、`web/static/css/app.css`、`yd-main.css`、
+  `components.css`、`ui.css`。只由脚手架模板产生，禁止把业务定制写进这些文件。
+- **用户资源**：`web/static/js/yd-app.user.js`、`web/static/css/user.css`。不得改名、移动或另建同义文件；
+  `tooling/scaffold/layers.go` 的 `IsUserOwned` 与 `yd sync` 按这两个精确路径判断归属。
+- **顺序固定**：`… → yd-app.js → yd-app.user.js → PageScripts`；`app.css` 先导入 `yd-main.css`
+  （其中导入 `components.css` / `ui.css`），最后导入 `user.css`。生产 bundle 同样把用户脚本追加在
+  主脚本之后。
+- **CSS**：覆盖已有语义令牌用 `:root` / `:root[data-theme="dark"]`，不得用同名 `@theme`
+  （主资源主题层会写回同名变量）；`@theme` 只用于新令牌；不得复制主资源正文，不得编辑 `yd.css`
+  （Tailwind 产物）或 `components.css` / `ui.css`（主层副本）；用户规则保持无层。
+- **JS**：只依赖 `window.yd`（`ready`、`confirm`、`progress`、`messageEditor`）、`window.ydUI`、
+  `yd.can/hasRole/perms/roles` 与 `htmx:*` / `yd:*` 事件；不得复制 `yd-app.js` 初始化逻辑，不得另建
+  确认框、进度条、实时连接或重连循环；CSP `script-src 'self'` 下禁止 `eval`、`new Function`、
+  内联脚本与 CDN。
+- **同步语义**：`yd sync` 缺失时创建用户资源、存在时输出 `keep | 保留`，摘要报告 `N user-owned kept`；
+  主资源覆盖前备份。`yd sync --dry-run` 必须能预览；不得删除、覆盖或重命名用户资源。
+- **新增用户层文件**：必须同批更新 `tooling/scaffold/layers.go`、`yd sync` 守卫、`requiredFiles`、
+  `docs/frontend-ui.md` 与生成项目的 `CLAUDE.md` / `AGENTS.md`，并补测试；否则视为未完成。
+- **守卫**：`TestGeneratedProjectSplitsMainAndUserAssets`、`TestUserOwnedAssetPaths`、
+  `TestSyncKeepsUserOwnedAssets`、`TestGeneratedLayeredStylesCompile` 必须通过。
 
 ## 4. 提交纪律（强制，Agent 必须遵守）
 

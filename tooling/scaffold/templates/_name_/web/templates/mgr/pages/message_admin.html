@@ -15,7 +15,13 @@
      EasyMDE editor, and without this declaration the editor inside a drawer never initialises after a
      partial navigation until the page is reloaded in full. */}}
 {{- if or .PageStyles .PageScripts }}
-<div id="yd-page-assets" hidden
+{{/* 编辑器地址挂在资产声明上：治理页的编辑器都在抽屉里，页面本身没有包装元素；空闲预热据此提前
+     取一次 EasyMDE，抽屉打开时正文与工具栏同帧出现，而不是先露出裸文本域。 |
+     The editor address sits on the asset declaration: every editor on the moderation page lives in a
+     drawer, so the page itself carries no wrapper. The idle warm-up reads it here and fetches EasyMDE
+     ahead of time, so an opened drawer paints its body and toolbar in the same frame instead of showing
+     a bare textarea first. */}}
+<div id="yd-page-assets" hidden data-yd-editor-vendor="{{ asset "/static/js/vendored/easymde.min.js" }}"
      data-yd-styles="{{ range .PageStyles }}{{ asset . }} {{ end }}"
      data-yd-scripts="{{ range .PageScripts }}{{ asset . }} {{ end }}"></div>
 {{- end }}

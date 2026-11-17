@@ -650,9 +650,15 @@
 的 `ydEditor` 据此重试初始化。
 消息中心默认把 EasyMDE 延迟到首次聚焦 `[data-yd-editor]` 或打开抽屉时再加载：包装元素用
 `data-yd-editor-vendor="{{ asset "/static/js/vendored/easymde.min.js" }}"` 声明地址，
-`yd-message-editor.js` 负责同源注入并在加载后升级全部编辑器；只读访问因此不必下载约 320 KB 的编辑器。
+`yd-message-editor.js` 负责同源注入并在加载后升级全部编辑器；只读访问因此不必阻塞在约 320 KB 的编辑器上。
+消息页在首帧之后还会用 `requestIdleCallback` 空闲预热一次（地址可挂在 `#yd-page-assets` 的
+`data-yd-editor-vendor` 上），因此第一次打开会话或抽屉时 EasyMDE 已在内存里，撰写区与工具栏同帧出现，
+不会再先画出裸文本域、片刻后换一遍样式。预热只是下载脚本，不会顺便升级未聚焦的非紧凑编辑器。
 工具栏图标由 `partials/editor-icons.html` 的隐藏 Lucide 调色板提供（`yd-ui.js` 在运行时克隆进按钮），
 不加载 EasyMDE 默认的 Font Awesome 图标字体，也不请求 CDN。
+编辑器的项目定制（额外工具栏项、样式覆盖、事件）写进 `web/static/css/user.css` 与
+`web/static/js/yd-app.user.js`；主资源升级不会覆盖这两个文件，边界与迁移方式见
+`docs/frontend-ui.md` §2.6。
 
 ### 4.6 动作、搜索与表单布局
 

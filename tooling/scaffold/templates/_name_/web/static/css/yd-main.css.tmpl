@@ -1,0 +1,149 @@
+/* {{ .Name }} 主样式层（主资源）：由 `yd sync` 维护，升级时整份替换；项目自己的规则写进 user.css。
+   {{ .Name }} main stylesheet layer (main resource): maintained by `yd sync` and replaced wholesale on
+   upgrade; project rules belong in user.css. */
+{{- if .Tailwind }}
+/* 框架管理端组件层：yd new 从框架资产逐字节复制而来，提供 .yd-shell、.yd-table 等全部组件。
+   它属于主资源，请勿直接修改；覆盖规则写进 user.css。 | Framework admin component layer: copied verbatim
+   from the framework assets by yd new; it provides every component (.yd-shell, .yd-table and friends).
+   It belongs to the main resource, so edit user.css instead of this file. */
+@import "./components.css";
+/* UI 组件层：表单、反馈、导航、数据展示与中国常用控件，同样由 yd new 逐字节复制。
+   它排在 components.css 之后，同等特异性下由它胜出。 | The UI-kit layer: forms, feedback, navigation, data
+   display and the China-specific controls, also copied byte for byte by yd new. It follows components.css so its
+   rules win on equal specificity. */
+@import "./ui.css";
+
+/* 扫描范围：模板与 Go 源码中的类名都会被裁剪保留。 | Scan scope: class names found in templates and Go sources are kept by the purger. */
+@source "../../templates/**/*.html";
+@source "../../../internal/**/*.go";
+/* 脚本也会在运行期添加类名（例如编辑器的 yd-editor--dark、侧栏的 yd-sidebar-open）；
+   不扫描脚本，Tailwind 会把这些只在 JS 里出现的类裁掉。 | Scripts also add class names at runtime
+   (the editor's yd-editor--dark, the rail's yd-sidebar-open); without scanning them Tailwind would drop
+   every class that only appears in JavaScript. */
+@source "../../static/js/yd-*.js";
+
+/* 语义化主题变量（暖纸色与墨色，蓝色只属于 yd 标记）：页面只引用语义名，不写颜色字面量。 |
+   Semantic theme variables (warm paper and ink; the blue belongs to the yd mark alone): pages reference semantic
+   names, never raw colour literals. */
+@theme {
+  /* 品牌色阶：yd 标记的蓝色 | brand scale: the blue of the yd mark */
+  --color-brand-50: #eff6ff;
+  --color-brand-100: #dbeafe;
+  --color-brand-200: #bfdbfe;
+  --color-brand-500: #3b82f6;
+  --color-brand-600: #1d4ed8;
+  --color-brand-700: #1e40af;
+
+  /* 语义色：暖纸表面与墨色文字 | semantic colours: warm paper surfaces and ink text */
+  --color-surface: #fdfbf7;
+  --color-content: #1f1b16;
+  --color-content-muted: #5e554a;
+  --color-border: #a39684;
+  --color-border-subtle: #e7dfd2;
+}
+
+{{- else }}
+/* 未启用 Tailwind：保留最小基础样式，语义变量名与 Tailwind 模式保持一致，便于后续切换。 | Tailwind is disabled: a minimal base sheet keeps the semantic variable names identical to the Tailwind mode so switching later stays cheap. */
+:root {
+  /* 品牌色阶 | brand scale */
+  --color-brand-50: #eff6ff;
+  --color-brand-600: #1d4ed8;
+
+  /* 语义色 | semantic colours */
+  --color-surface: #fdfbf7;
+  --color-content: #1f1b16;
+  --color-content-muted: #5e554a;
+  --color-border: #a39684;
+  --color-border-subtle: #e7dfd2;
+}
+
+body {
+  margin: 0;
+  background: var(--color-surface-muted);
+  color: var(--color-content);
+  font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+}
+
+.yd-skeleton {
+  min-height: 4rem;
+  border-radius: 0.5rem;
+  background: var(--color-border-subtle);
+}
+
+.htmx-indicator {
+  opacity: 0;
+}
+
+.htmx-request .htmx-indicator,
+.htmx-request.htmx-indicator {
+  opacity: 1;
+}
+{{- end }}
+
+/* ============================================================================================
+   主题：三态（浅色 / 深色 / 跟随系统）由 <html data-theme> 上的一个属性承载，页面结构完全不变。
+   Theme: the three states (light, dark, system) ride on a single attribute on <html data-theme> and the page structure
+   never changes with them.
+
+   深色只重写语义变量，因此所有引用语义名的规则（含 Tailwind 编译出的 bg-surface、text-content）一起跟随；
+   写死色值的地方会在这里暴露出来——那正是它们该被修掉的时候。
+   Dark mode only redefines the semantic variables, so every rule that references a semantic name — Tailwind's compiled
+   bg-surface and text-content included — follows along; a hard-coded colour shows up right here, which is exactly when
+   it should be fixed.
+   ============================================================================================ */
+/* 语义色补充：危险色在两种主题下各有一个取值，因此页面里不出现任何色值字面量。 */
+/* Additional semantic colours: the danger colour has one value per theme, which keeps every colour literal out of the
+   pages. */
+:root {
+  --color-danger: #dc2626;
+}
+
+:root[data-theme="dark"] {
+  --color-brand-50: #172554;
+  --color-brand-100: #1e3a8a;
+  --color-brand-200: #1e40af;
+  --color-brand-500: #3b82f6;
+  --color-brand-600: #3b82f6;
+  --color-brand-700: #60a5fa;
+
+  --color-danger: #f08a84;
+
+  --color-surface: #1c1813;
+  --color-content: #efe7da;
+  --color-content-muted: #a79a89;
+  --color-border: #5c5143;
+  --color-border-subtle: #332c24;
+}
+
+/* 跟随系统：同一个变量表，但只在系统偏好为深色时生效，且不能覆盖用户手选的 light/dark。 */
+/* System: the same variable table, applied only while the operating system prefers dark, and never overriding an
+   explicit light or dark choice. */
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="auto"] {
+    --color-brand-50: #172554;
+    --color-brand-100: #1e3a8a;
+    --color-brand-200: #1e40af;
+    --color-brand-500: #3b82f6;
+    --color-brand-600: #3b82f6;
+    --color-brand-700: #60a5fa;
+
+    --color-danger: #f08a84;
+    --color-success: #9dbf7d;
+    --color-warning: #e2b264;
+    --color-info: #93b0cc;
+    --color-accent: #e07a63;
+
+    --color-surface: #1c1813;
+    --color-surface-muted: #14110d;
+    --color-content: #efe7da;
+    --color-content-muted: #a79a89;
+    --color-border: #5c5143;
+    --color-border-subtle: #332c24;
+  }
+}
+
+/* 项目组件（登录卡片、身份信息、角色卡等）定义在 components.css 的组件层里：它随框架兜底样式一起分发，
+   因此尚未运行 Tailwind 的新项目也有完整样式。这里只保留主题令牌与本项目的覆盖规则。
+   Project components (sign-in card, identity blocks, role cards and friends) live in the component layer of
+   components.css: they ship with the framework fallback stylesheet, so a fresh project has complete styling before
+   Tailwind ever runs. This file keeps the theme tokens and project-specific overrides only. */

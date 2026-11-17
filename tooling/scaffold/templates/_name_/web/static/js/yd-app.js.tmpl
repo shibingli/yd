@@ -610,8 +610,9 @@
     }
   }
 
-  /* 抽屉：点「新建/编辑」时立即打开，htmx 随后把片段换进 #yd-drawer-body。
-     Drawer: opening happens on the click and htmx swaps the fragment into #yd-drawer-body afterwards. */
+  /* 显示抽屉：只在片段已经换入后由 before:settle 监听器调用，面板不会先空着滑入。
+     Shows the drawer: only the before:settle listener calls it, once the fragment is in place, so the
+     panel never slides in empty first. */
   function openDrawer() {
     clearDrawerErrors();
     var drawer = document.querySelector(SELECTORS.drawer);
@@ -620,6 +621,44 @@
     }
     drawer.showModal();
   }
+
+  /* drawerSwapTarget reports whether a settle event belongs to a swap inside the drawer body, including the
+     legacy beforeSettle shape and a response the core has already decided not to swap. A swap that will
+     not happen must never open the drawer. |
+     drawerSwapTarget 报告一次结算事件是否属于落在抽屉正文里的交换，同时兼容旧版 beforeSettle 形态与
+     内核已决定不交换的响应；不会发生的交换绝不能打开抽屉。 */
+  function drawerSwapTarget(event) {
+    var detail = (event && event.detail) || {};
+    var ctx = detail.ctx || {};
+    if (detail.shouldSwap === false || ctx.shouldSwap === false) {
+      return false;
+    }
+    /* before:settle 以交换目标为事件目标；旧版事件把目标放在 detail 里。 |
+       before:settle dispatches on the swap target; the legacy shape carries it in detail. */
+    var target = ctx.target || detail.target || (detail.task && detail.task.target) || (event && event.target);
+    if (!target || target.nodeType !== 1) {
+      return false;
+    }
+    var body = document.getElementById("yd-drawer-body");
+    return !!body && (target === body || body.contains(target));
+  }
+
+  /* 抽屉只在片段已经换入、即将结算时打开：before:settle 位于 DOM 更新之后、after:swap 之前，还在同一个
+     任务里，因此 showModal 与内容换来的是同一帧；打开后紧接着运行的编辑器初始化也能看到可见的对话框。
+     点击时先打开空面板、等响应回来再填充，正是用户看到的闪动；被取消或 4xx 的响应不会走到这里，
+     因此错误也不会留下一个空抽屉。 |
+     The drawer opens once its fragment is in the DOM and settlement is about to begin: before:settle runs
+     after the DOM update and before after:swap, still in the same task, so showModal and the content share
+     one frame; the editor initialisation that follows also sees a visible dialog. Opening an empty panel on
+     click and filling it when the response arrives is exactly the flash users see. A cancelled or 4xx
+     response never reaches this point, so an error cannot leave a blank drawer. */
+  ["htmx:before:settle", "htmx:beforeSettle"].forEach(function (name) {
+    document.addEventListener(name, function (event) {
+      if (drawerSwapTarget(event)) {
+        openDrawer();
+      }
+    });
+  });
 
   /* closeDrawer 关闭抽屉；未打开时是空操作。 | closeDrawer closes the drawer and is a no-op while it is closed. */
   function closeDrawer() {
@@ -779,9 +818,11 @@
       return;
     }
 
-    /* 抽屉入口：不阻止默认行为，htmx 的 hx-get 继续把片段取进 #yd-drawer-body。 | Drawer entry: the default is not prevented, so htmx's hx-get still fetches the fragment into #yd-drawer-body. */
+    /* 抽屉入口：不阻止默认行为，htmx 的 hx-get 继续把片段取进 #yd-drawer-body；打开动作交给上面的
+       before:settle 监听器，因此面板不会先空着滑入。 | Drawer entry: the default is not prevented, so htmx's
+       hx-get still fetches the fragment into #yd-drawer-body; opening is left to the before:settle listener
+       above, so the panel never slides in empty first. */
     if (target.closest("[data-yd-drawer-open]")) {
-      openDrawer();
       return;
     }
 
@@ -1136,6 +1177,19 @@
     });
   });
 
+  /* 历史快照在 before:swap 之后才销毁 Alpine 树：hx-history-cache 在 before:history:update 里
+     destroyTree，随后 hx-alpine-compat 才把（此时已为空的）作用域栈复制到 morph 的新节点上。
+     只在 before:swap 修复因此不够，控制台会刷出 Undefined variable，控件也可能短暂显示两套。
+     after:history:update 位于快照之后、morph 之前，在这里重建被清空的作用域，morph 拿到的就是完整栈。
+     The history snapshot destroys the Alpine tree after before:swap: hx-history-cache calls destroyTree in
+     before:history:update, and only then does hx-alpine-compat copy the — now empty — scope stack onto the
+     nodes morph is about to create. Repairing in before:swap alone is therefore not enough: the console
+     fills with "Undefined variable" and a control can briefly render twice. after:history:update fires
+     after the snapshot and before the morph, so rebuilding the emptied scopes here gives morph a full stack. */
+  document.addEventListener("htmx:after:history:update", function () {
+    reviveDestroyedScopes(document);
+  });
+
   /* 抽屉式侧栏：64rem 以下由顶栏按钮打开，遮罩、Esc 与导航点击关闭。
      Off-canvas rail: opened by the topbar button below 64rem, closed by the scrim, Escape or a nav click. */
   function rail() {
@@ -1439,10 +1493,20 @@
      swap and ctx.text is complete, so the stylesheet link is inserted and scripts are preloaded
      here; after the swap loadPageAssets only executes the scripts that have not run yet. */
   function preloadPageAssets(text) {
-    if (!text || text.indexOf("yd-page-assets") < 0) {
+    /* 只解析确实带有页面资产声明或编辑器包装的响应：消息正文里偶然出现的普通字符串不应触发
+       一次整页 DOM 解析。 | Parse only responses that actually carry the asset declaration or an editor
+       wrapper, so an ordinary string in a message body never pays for a whole-page DOMParser pass. */
+    if (!text ||
+        (text.indexOf('id="yd-page-assets"') < 0 && text.indexOf("data-yd-editor-vendor") < 0)) {
       return;
     }
-    var Parser = win().DOMParser;
+    /* DOMParser 只用于在交换前解析响应正文里的页面资产声明；直接取 window，避免再引入一个未定义的
+       辅助函数（上一版调用了从未声明的 win()，每次进入带页面资产的页面都会抛 ReferenceError，
+       预载因此整段失效）。 | DOMParser only parses the page-asset declaration out of the response text
+       before the swap. Read it off window directly instead of introducing another helper: the previous
+       revision called a never-declared win(), which threw on every navigation into a page with page
+       assets and silently disabled the whole preload path. */
+    var Parser = window.DOMParser;
     if (typeof Parser !== "function") {
       return;
     }
@@ -1453,19 +1517,38 @@
       return;
     }
     var node = fragment && fragment.querySelector("#yd-page-assets");
-    if (!node) {
+    /* 编辑器脚本同样在交换前预取：页面资产声明上没有该地址时，再看响应里的编辑器包装元素。
+       抽屉片段通常没有 #yd-page-assets，只带编辑器包装，这条回退就是为它存在的。预取只下载不执行，
+       真正的初始化仍由 yd-message-editor.js 在片段到达后触发。 |
+       The editor script is prefetched before the swap as well: when the asset declaration does not carry
+       its address, fall back to the editor wrapper inside the response. A drawer fragment usually has no
+       #yd-page-assets and only an editor wrapper, which is exactly what this fallback serves. A preload
+       only downloads — the actual initialisation still happens in yd-message-editor.js once the fragment
+       is in place. */
+    var vendor = node ? (node.getAttribute("data-yd-editor-vendor") || "") : "";
+    if (!vendor) {
+      var wrapper = fragment.querySelector("[data-yd-editor-vendor]");
+      vendor = wrapper ? (wrapper.getAttribute("data-yd-editor-vendor") || "") : "";
+    }
+    if (!node && !vendor) {
       return;
     }
-    var styles = (node.getAttribute("data-yd-styles") || "").split(/\s+/).filter(Boolean);
-    for (var i = 0; i < styles.length; i++) {
-      if (!document.querySelector('link[rel="stylesheet"][href="' + styles[i] + '"]')) {
-        var link = document.createElement("link");
-        link.rel = "stylesheet";
-        link.href = styles[i];
-        document.head.appendChild(link);
+    var scripts = [];
+    if (node) {
+      var styles = (node.getAttribute("data-yd-styles") || "").split(/\s+/).filter(Boolean);
+      for (var i = 0; i < styles.length; i++) {
+        if (!document.querySelector('link[rel="stylesheet"][href="' + styles[i] + '"]')) {
+          var link = document.createElement("link");
+          link.rel = "stylesheet";
+          link.href = styles[i];
+          document.head.appendChild(link);
+        }
       }
+      scripts = (node.getAttribute("data-yd-scripts") || "").split(/\s+/).filter(Boolean);
     }
-    var scripts = (node.getAttribute("data-yd-scripts") || "").split(/\s+/).filter(Boolean);
+    if (vendor) {
+      scripts.push(vendor);
+    }
     for (var j = 0; j < scripts.length; j++) {
       if (document.querySelector('script[src="' + scripts[j] + '"]') ||
           document.querySelector('link[rel="preload"][href="' + scripts[j] + '"]')) {

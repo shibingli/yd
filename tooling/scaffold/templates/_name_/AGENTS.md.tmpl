@@ -80,9 +80,17 @@
       `portal/**` 与 `mgr/**` 只保留各自的布局入口、侧栏与页面，互不 include；差异用 `.Portal` / `.Mgr`，
       不得复制同名模板。
   门户的 `/ui-kit`（`portal/pages/ui_kit.html`）是组件层活文档：新增组件必须同步加入该页。
-- [ ] **Tailwind v4**：项目样式必须经 `@theme` 语义令牌与 `@layer components` 定义，
-      可复用工具类用 `@apply`，颜色不得在令牌块之外写字面量；`@source` 要覆盖 `static/js/yd-*.js`，
-      否则脚本运行期添加的类会被裁掉；EasyMDE 等无层 vendor CSS 的覆盖写在 `@layer` 之外。
+- [ ] **主资源与用户资源分层**：`{{ .AssetRoot }}/static/js/yd-app.js`、`app.css`、`yd-main.css`、
+      `components.css`、`ui.css` 是主资源，由 `yd sync` 覆盖（覆盖前备份）；项目自定义只能写进
+      `{{ .AssetRoot }}/static/js/yd-app.user.js` 与 `{{ .AssetRoot }}/static/css/user.css`
+      （`yd sync` 只在缺失时创建，存在时永不覆盖）。用户脚本排在 `yd-app.js` 之后，用户样式由
+      `app.css` 最后导入；覆盖已有语义令牌用 `:root` 而非同名 `@theme`；不得复制主资源正文，
+      不得编辑 `yd.css`、`components.css`、`ui.css`。不得改名、移动或另建同义文件。
+- [ ] **Tailwind v4**：`app.css` 的 `@import "tailwindcss"` 之后按 `yd-main.css → user.css` 导入；
+      框架语义令牌在 `yd-main.css` 的 `@theme`，项目覆盖写 `user.css`（已有令牌用 `:root`，
+      不要同名 `@theme`）；可复用工具类用 `@apply`，颜色不得在令牌块之外写字面量；
+      `yd-main.css` 的 `@source` 要覆盖 `static/js/yd-*.js`，否则脚本运行期添加的类会被裁掉；
+      EasyMDE 等无层 vendor CSS 的覆盖写在 `@layer` 之外。
 - [ ] **实时推送与文档**：htmx 4 SSE 只交换匿名消息；WebSocket 的发送控件必须位于 `hx-ws:connect` 元素内部
       （扩展用 `closest()` 向上找连接，否则消息不会发出），下行只交换 `content`，回车发送由脚本点击按钮
       （`hx-trigger` 过滤器会被 CSP 拦截），`htmx:ws:error` 不等于断开；重连交给 hx-sse / hx-ws 的退避机制

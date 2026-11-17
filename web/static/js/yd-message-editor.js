@@ -147,48 +147,120 @@
     return "";
   }
 
-  /* flushVendor 在加载结算后运行所有等待者，并按当前脚本状态重新初始化页面。 |
-     flushVendor runs every waiter once the load settles and then re-initialises the page against the loaded script. */
+  /* flushVendor 在加载结算后运行所有等待者，并在确实有编辑器在等脚本时重新扫描页面。预热（warm-up）
+     没有等待者，不能顺手把非紧凑编辑器也升级掉：ui-kit 的演示编辑器仍保持聚焦时才加载。
+     flushVendor runs every waiter once the load settles and rescans the page only when an editor was
+     actually waiting for the script. A warm-up has no waiter and must not upgrade non-compact editors as a
+     side effect: the ui-kit demo editor stays lazy until it is focused. */
   function flushVendor() {
     var waiters = vendorWaiters;
     vendorWaiters = [];
     for (var i = 0; i < waiters.length; i++) {
       waiters[i]();
     }
-    init(document);
+    if (waiters.length) {
+      init(document);
+    }
   }
 
-  /* loadVendor 幂等加载同源脚本：并发意图共享同一次请求。 | loadVendor loads the same-origin script idempotently:
-     concurrent intents share one request. */
+  /* loadVendor 幂等加载同源脚本：并发意图共享同一次请求。done 可为空，供空闲预热只取脚本而不升级编辑器。 |
+     loadVendor loads the same-origin script idempotently: concurrent intents share one request. done may be
+     null so an idle warm-up can fetch the script without upgrading any editor. */
   function loadVendor(url, done) {
     if (!url) {
       return;
     }
     if (typeof window.EasyMDE === "function" || typeof window.EasyMDE === "object") {
-      done();
+      if (typeof done === "function") {
+        done();
+      }
       return;
     }
     if (vendorState === 1) {
-      vendorWaiters.push(done);
+      if (typeof done === "function") {
+        vendorWaiters.push(done);
+      }
       return;
     }
     if (vendorState === 2) {
       return;
     }
     vendorState = 1;
-    vendorWaiters.push(done);
+    if (typeof done === "function") {
+      vendorWaiters.push(done);
+    }
     var script = document.createElement("script");
     script.src = url;
     script.async = false;
     script.onload = function () {
+      /* A response that did not define EasyMDE is a failure, not a load: leaving the state at
+         "settled" would make every later focus or swap skip the retry. |
+         返回内容没有定义 EasyMDE 属于失败而不是加载完成：把状态留在“已结算”会让之后的聚焦或交换
+         全部跳过重试。 */
+      if (typeof window.EasyMDE !== "function" && typeof window.EasyMDE !== "object") {
+        vendorState = 0;
+        vendorWaiters = [];
+        return;
+      }
       vendorState = 2;
       flushVendor();
     };
     script.onerror = function () {
-      vendorState = 2;
-      flushVendor();
+      /* Never poison a later intent: an idle warm-up that fails (offline, flaky network) must not
+         make the composer stay a textarea forever. Drop this round's waiters to avoid a retry loop;
+         the next focus, drawer open or swap starts a fresh request. |
+         不得毒化后续意图：空闲预热失败（离线、网络抖动）不能让撰写区永远停在文本域。丢弃本轮的
+         等待者以免立即重试成环；下一次聚焦、打开抽屉或交换会发起新请求。 */
+      vendorState = 0;
+      vendorWaiters = [];
     };
     document.head.appendChild(script);
+  }
+
+  /* vendorDeclaration 返回页面声明的编辑器脚本地址：既可以是编辑器包装元素，也可以是页面资产声明节点
+     （例如治理页的抽屉里没有编辑器，但打开抽屉就需要 EasyMDE）。 |
+     vendorDeclaration returns the editor script address the page declares: it may sit on an editor wrapper
+     or on the page-asset declaration node — the moderation page has no editor until its drawer opens, yet
+     opening that drawer needs EasyMDE. */
+  function vendorDeclaration() {
+    var element = document.querySelector("[data-yd-editor-vendor]");
+    return element ? vendorURL(element) : "";
+  }
+
+  /* 空闲预热：消息中心的紧凑撰写区是主输入区，会话打开时若 EasyMDE 仍在下载，正文先以裸文本域绘制、
+     工具栏随后替换上来，正是用户看到的“闪一下刷新”。首帧之后在浏览器空闲时取一次脚本，阅读成本几乎
+     不变，但第一次打开会话时编辑器已经在内存里，交换与升级落在同一次绘制中。
+     Idle warm-up: the compact composer is the message centre's primary input. When EasyMDE is still
+     downloading as a conversation opens, the body paints as a bare textarea and the toolbar replaces it a
+     moment later — the "flicker and refresh" users see. Fetching the script once the first paint is done and
+     the browser is idle keeps reading cheap, while the first conversation open finds the editor in memory and
+     the swap and upgrade share one paint. */
+  var warmScheduled = false;
+
+  function scheduleWarm() {
+    if (warmScheduled || vendorState !== 0) {
+      return;
+    }
+    if (typeof window.EasyMDE === "function" || typeof window.EasyMDE === "object") {
+      return;
+    }
+    var url = vendorDeclaration();
+    if (!url) {
+      return;
+    }
+    warmScheduled = true;
+    var run = function () {
+      warmScheduled = false;
+      if (vendorState !== 0) {
+        return;
+      }
+      loadVendor(url, null);
+    };
+    if (typeof window.requestIdleCallback === "function") {
+      window.requestIdleCallback(run, {timeout: 2500});
+      return;
+    }
+    window.setTimeout(run, 1200);
   }
 
   /* eagerEditor 报告包装是否位于抽屉中：打开抽屉就是明确的撰写意图，可以立即加载编辑器。 |
@@ -319,15 +391,18 @@
       var target = ctx.target || detail.target;
       if (!target || target.nodeType !== 1) {
         init(document);
+        scheduleWarm();
         return;
       }
       if (target.matches && target.matches("[data-yd-editor]")) {
         initOne(target);
+        scheduleWarm();
         return;
       }
       if (target.querySelector && target.querySelector("[data-yd-editor]")) {
         init(target);
       }
+      scheduleWarm();
     });
   });
 
@@ -353,6 +428,9 @@
     }
   }
 
-  /* 脚本以 defer 加载，DOM 已就绪；立即初始化一次。 | The script loads with defer, so the DOM is ready; initialise once now. */
+  /* 脚本以 defer 加载，DOM 已就绪；立即初始化一次，并在首帧之后空闲时预热编辑器脚本。 |
+     The script loads with defer, so the DOM is ready; initialise once now and warm the editor script
+     once the first paint is done. */
   init(document);
+  scheduleWarm();
 })();

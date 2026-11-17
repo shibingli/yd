@@ -285,10 +285,13 @@ yd gen module|crud   # 低代码生成（DB Schema 或 Go Struct）
 - 主题（浅色 / 深色 / 跟随系统）是纯客户端行为，落在 `{{ .AssetRoot }}/static/js/yd-app.js`；
   语言切换是单一状态按钮（显示当前语言，点击循环），选择写 cookie 后经 htmx 换入整个 `#yd-shell`，并同步 `<html lang>`；
   内容安全策略只允许 `script-src 'self'`，因此**禁止内联脚本**与内联样式。
-- 所有样式必须继承 Tailwind v4：`app.css` 引入 `@import "tailwindcss"`，设计令牌写在 `@theme`，
-  项目与框架组件写在 `@layer components`；可复用的工具类用 `@apply`，颜色不得在令牌块之外写字面量。
-  `@source` 必须覆盖 `static/js/yd-*.js`，否则脚本运行期添加的类（`yd-editor--dark`、`yd-sidebar-open`）
-  会被裁掉；EasyMDE 等无层 vendor CSS 的覆盖必须写在 `@layer` 之外并提高特异性。
+- 所有样式必须继承 Tailwind v4：`app.css` 引入 `@import "tailwindcss"`，随后按
+  `yd-main.css → user.css` 导入主层与用户层；框架设计令牌在 `yd-main.css` 的 `@theme`，项目覆盖写
+  `user.css`（已有令牌用 `:root`，不要同名 `@theme`），主层与框架组件写在 `@layer components`；
+  可复用的工具类用 `@apply`，颜色不得在令牌块之外写字面量。
+  `yd-main.css` 的 `@source` 必须覆盖 `static/js/yd-*.js`，否则脚本运行期添加的类
+  （`yd-editor--dark`、`yd-sidebar-open`）会被裁掉；EasyMDE 等无层 vendor CSS 的覆盖必须写在
+  `@layer` 之外并提高特异性。
 - **模板静态引用一律 `{{ "{{ asset \"/static/...\" }}" }}`**：production 下自动解析 `*.min.js` / `yd.min.css`，
   开发期使用源码；禁止裸写 `/static/...`。CSS 压缩只由 Tailwind `--minify` 负责，JS 压缩由 `minify` 工具负责。
 - `app.env` / `YD_APP_ENV` 接受 `development`/`dev` 与 `production`/`prod`（忽略大小写与首尾空白）。
@@ -299,6 +302,14 @@ yd gen module|crud   # 低代码生成（DB Schema 或 Go Struct）
   把每个 `[x-data]` 作用域交给 `JSON.stringify`。`x-data` 对象只能放原始值、普通数组/对象与函数；
   EasyMDE 等第三方实例、DOM 节点与循环引用必须留在模块级 `WeakMap` 或 DOM 属性上，否则历史快照
   会抛错并中断整次换入（表现为点击语言没有反应）。
+- **主资源与用户资源分层**：`{{ .AssetRoot }}/static/js/yd-app.js`、`{{ .AssetRoot }}/static/css/app.css`、
+  `yd-main.css`、`components.css` 与 `ui.css` 是主资源，`yd sync` 会重新渲染并覆盖（覆盖前备份）；
+  项目自有规则只能写进 `{{ .AssetRoot }}/static/js/yd-app.user.js` 与
+  `{{ .AssetRoot }}/static/css/user.css`（`yd sync` 只在缺失时创建，永不覆盖）。不得改名、移动或另建
+  同义文件。用户脚本排在 `yd-app.js` 之后执行，只依赖 `window.yd` / `window.ydUI` / `yd.can` 等公开
+  接口与 `htmx:*` / `yd:*` 事件，不得复制主脚本的初始化逻辑或另建确认框、进度条、实时连接；
+  用户样式由 `app.css` 最后导入，覆盖已有语义令牌用 `:root` 而非同名 `@theme`，不得复制主资源正文，
+  不得编辑 `yd.css` / `components.css` / `ui.css`。主资源升级时不要手工合并，把自定义内容留在用户文件即可。
 - 接口组（接口文档、OpenAPI JSON）一律 `target="_blank" rel="noopener noreferrer"` 新标签页打开，
   页面内的 `/mgr/docs`、`/api/v1/openapi.json` 链接同样处理；它们不能换进工作区。
 - 新增/编辑一律用右侧抽屉（`#yd-drawer` + `data-yd-drawer-open` + `hx-get` 片段）；

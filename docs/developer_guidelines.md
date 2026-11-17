@@ -34,6 +34,35 @@ web/templates/
   [`docs/frontend-ui.md`](frontend-ui.md)；组件清单、参数与图表选型见
   [`docs/frontend-components.md`](frontend-components.md)。
 
+### 2.1 主资源与用户资源分层（强制）
+
+生成项目的脚本与样式分两层，工程定制只能落在用户资源，主资源升级不得要求手工合并：
+
+| 层 | 文件 | 归属 | `yd sync` |
+|---|---|---|---|
+| 主脚本 | `web/static/js/yd-app.js` | 脚手架 | 覆盖（备份后） |
+| 用户脚本 | `web/static/js/yd-app.user.js` | 项目 | 缺失时创建，永不覆盖 |
+| 样式入口 | `web/static/css/app.css` | 脚手架 | 覆盖（备份后） |
+| 主样式层 | `web/static/css/yd-main.css`、`components.css`、`ui.css` | 脚手架 | 覆盖（备份后） |
+| 用户样式 | `web/static/css/user.css` | 项目 | 缺失时创建，永不覆盖 |
+
+- **顺序固定**：`… → yd-app.js → yd-app.user.js → PageScripts`；`app.css` 先导入 `yd-main.css`
+  （其中导入 `components.css` / `ui.css`），最后导入 `user.css`。生产 bundle 也把用户脚本追加在
+  主脚本之后。
+- **禁止**把项目规则写进主资源，或把主资源正文整段复制进用户资源；`yd.css` 是 Tailwind 产物，
+  `components.css` / `ui.css` 是主层副本，均不得直接编辑。
+- **CSS**：覆盖已有语义令牌用 `:root` / `:root[data-theme="dark"]`；同名 `@theme` 会被主资源主题层
+  写回，只适合声明新令牌。用户规则保持无层，以覆盖 `@layer components`。
+- **JS**：只依赖 `window.yd`（`ready`、`confirm`、`progress`、`messageEditor`）、`window.ydUI`、
+  `yd.can/hasRole/perms/roles` 与 `htmx:*` / `yd:*` 事件；不得另建确认框、进度条、实时连接或重连循环。
+  CSP `script-src 'self'` 下禁止 `eval`、`new Function`、内联脚本与 CDN。
+- **同步**：`yd sync` 对用户资源输出 `keep | 保留`（缺失时 `add | 新增`），主资源覆盖前备份；
+  `yd sync --dry-run` 可预览。旧项目迁移时把备份中的定制迁入用户资源。
+- **扩展**：新增用户层文件必须同批更新 `tooling/scaffold/layers.go`、`yd sync` 守卫、`requiredFiles`、
+  文档与生成项目的 `CLAUDE.md` / `AGENTS.md`，并补测试。
+- **守卫**：`TestGeneratedProjectSplitsMainAndUserAssets`、`TestUserOwnedAssetPaths`、
+  `TestSyncKeepsUserOwnedAssets`、`TestGeneratedLayeredStylesCompile`。
+
 ## 3. Htmx 4 属性约定
 
 - **属性继承是显式的**：父元素上的属性必须加 `:inherited` 修饰符才会被子元素继承，例如

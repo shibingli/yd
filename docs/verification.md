@@ -90,6 +90,7 @@ ok  github.com/shibingli/yd/e2e  26.829s
 | 生成器 | 生成代码经 `go/format` 可解析、控制器只返回 HTML 片段、`routes_gen.go` 标记块幂等替换 |
 | 脚手架 | 131 个文件真实生成 → 离线编译 → 启动 → 9 项 HTTP 断言（含 SSE 推送、WS 回显、国密登录链路、422 校验闭环） |
 | 前端 | htmx 4.0.1 与 17 个扩展、Alpine、Idiomorph 全部内嵌并锁定 sha256；模板引用的 149 个 `.yd-*` 类全部有定义 |
+| 主资源/用户资源分层 | `TestGeneratedProjectSplitsMainAndUserAssets` / `TestUserOwnedAssetPaths` / `TestSyncKeepsUserOwnedAssets` / `TestGeneratedLayeredStylesCompile`：主资源与用户资源分文件、加载顺序固定、`yd sync` 保留用户资源并在缺失时补建、真实 Tailwind 编译通过 |
 
 ## 3.1 Linux 侧门禁（WSL Ubuntu-24.04）
 

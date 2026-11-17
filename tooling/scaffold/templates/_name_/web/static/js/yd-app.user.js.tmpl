@@ -1,0 +1,43 @@
+/* {{ .Name }} 用户脚本层（用户资源）：这个文件属于你，`yd sync` 永不覆盖。
+   {{ .Name }} user script layer (user resource): this file belongs to you; `yd sync` never overwrites it.
+
+   它在 yd-app.js 之后执行（开发期逐个标签加载，生产期打包顺序相同），因此可以直接使用主资源公开的
+   `window.yd` 接口与页面事件。主资源升级只替换 yd-app.js，不会碰这个文件；把自定义交互写在这里即可，
+   不需要再分析、合并主资源。
+   It runs after yd-app.js (individual tags in development, the same order in the production bundle), so it can
+   use the public `window.yd` surface and the page events directly. A main-resource upgrade only replaces
+   yd-app.js and never touches this file; put custom behaviour here and stop analysing or merging the main
+   resources.
+
+   可用的主资源接口 | Public surface of the main resource
+     window.yd.ready                     true once the shell glue has finished booting | 外壳胶水层完成启动后为 true
+     window.yd.confirm(message, onOK)    the shared confirmation dialog | 共享确认对话框
+     window.yd.progress.start/done()     the global request bar | 全局请求进度条
+     window.yd.messageEditor.init(root)  upgrade [data-yd-editor] wrappers (message pages only) | 升级 [data-yd-editor] 包装（仅消息页加载）
+     window.ydUI                         UI-kit helpers (selectboxes, editors) | UI 组件辅助
+     window.yd.can/hasRole/perms/roles   capability helpers injected by yd-authz.js | yd-authz.js 注入的能力辅助
+
+   常用事件 | Common events
+     htmx:before:request / htmx:after:swap   partial navigation lifecycle | 局部导航生命周期
+     htmx:ws:* / htmx:sse:*                  realtime channel lifecycle | 实时通道生命周期
+     yd:toast                                server notice payload {level, text} | 服务端提示负载 {level, text}
+     yd:realtime                             message-centre JSON events | 消息中心 JSON 事件
+
+   注意：这里只写项目自己的行为，不要把主资源整段复制进来；主资源升级会覆盖复制来的部分。
+   Note: keep only project-specific behaviour here; do not paste the main resource in bulk, because a main
+   resource upgrade would replace the pasted parts.
+*/
+(function () {
+  "use strict";
+
+  // 在这里写项目自己的交互；例如：
+  // Put project-specific behaviour here; for example:
+  //
+  // document.addEventListener("htmx:after:swap", function (event) {
+  //   var target = (event.detail && event.detail.ctx && event.detail.ctx.target) || event.target;
+  //   if (!target || !target.querySelector) {
+  //     return;
+  //   }
+  //   // ...
+  // });
+})();
