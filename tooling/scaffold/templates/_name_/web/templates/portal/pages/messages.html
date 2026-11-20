@@ -15,8 +15,8 @@
   When the centre is unavailable (a project generated without a database) the page shows an explicit notice and no
   empty form at all.
 
-  数据契约 | Data contract: .Unavailable .MessageError .Filters .Conversations .Pinned .Catalog .Friends .Results .Total
-  .SearchMode .ActiveConversation .Thread .CanSend .CanManage .CanSystem .ActorID .Perm。
+  数据契约 | Data contract: .Unavailable .MessageError .Filters .Folders .Conversations .Pinned .Catalog .Friends .Results
+  .Total .SearchMode .ActiveConversation .Thread .CanSend .CanManage .CanSystem .ActorID .Perm。
 */}}
 {{/* 页面脚本/样式的惰性加载声明：整页请求由 layouts/base.html 直接装载；htmx 局部导航不会重写 <head>，
      yd-app.js 因此在交换后读取本元素并按顺序补齐缺失的脚本，避免从好友页进入消息中心时编辑器未加载。
@@ -105,12 +105,7 @@
               {{template "components.form.select" (dict
                 "ID" "yd-message-folder" "Name" "folder" "LabelHidden" true
                 "Label" (tr "message.folder_label") "LabelKey" "message.folder_label"
-                "Options" (list
-                  (dict "Value" "all" "Key" "message.folder.all" "Selected" (eq .Filters.Folder "all"))
-                  (dict "Value" "unread" "Key" "message.folder.unread" "Selected" (eq .Filters.Folder "unread"))
-                  (dict "Value" "sent" "Key" "message.folder.sent" "Selected" (eq .Filters.Folder "sent"))
-                  (dict "Value" "system" "Key" "message.folder.system" "Selected" (eq .Filters.Folder "system"))
-                  (dict "Value" "pinned" "Key" "message.folder.pinned" "Selected" (eq .Filters.Folder "pinned"))))}}
+                "Options" .Folders)}}
               {{template "components.form.select" (dict
                 "ID" "yd-message-type" "Name" "type_key" "LabelHidden" true
                 "Label" (tr "message.type") "LabelKey" "message.type"

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/shibingli/yd/core/fssecure"
 	"github.com/shibingli/yd/tooling/assets"
 	"github.com/shibingli/ydx/errs"
 	"github.com/spf13/afero"
@@ -68,9 +69,10 @@ func backupSyncFiles(fs afero.Fs, dir string, plan *syncPlan, upgradeGo, upgrade
 		if err := fs.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
 			return "", errs.WrapDetail(err, ErrSyncApply, "create backup directory for %[1]s | 为 %[1]s 创建备份目录", rel)
 		}
-		if err := afero.WriteFile(fs, dst, data, 0o600); err != nil {
+		if err := writeFileAtomic(fs, dst, data, 0o600); err != nil {
 			return "", errs.WrapDetail(err, ErrSyncApply, "back up %[1]s | 备份 %[1]s", rel)
 		}
+		restrictSecret(fs, dst)
 		backedUp++
 	}
 	if backedUp == 0 {
@@ -107,17 +109,72 @@ func applySyncFiles(env *Env, dir string, plan *syncPlan) error {
 		// rollback path must restore it as well. | 在写入前登记文件：部分写入可能已经截断目标，回滚
 		// 路径同样必须恢复它。
 		applied = append(applied, file)
-		if err := afero.WriteFile(env.FS, path, file.Content, mode); err != nil {
+		if err := writeFileAtomic(env.FS, path, file.Content, mode); err != nil {
 			return rollbackSyncFiles(env, dir, applied,
 				errs.WrapDetail(err, ErrSyncApply, "write %[1]s | 写入 %[1]s", file.Rel))
 		}
 		if file.Rel == syncConfigLocalRel {
 			// The local override may contain secrets; keep it private even when it already existed
-			// with a broader mode. | 本地覆盖可能含密钥；即使文件原本权限更宽，也把它收紧为私有。
+			// with a broader mode. Windows chmod only toggles the read-only bit, so the ACL is
+			// tightened separately. | 本地覆盖可能含密钥；即使文件原本权限更宽，也把它收紧为私有。
+			// Windows 的 chmod 只切换只读位，因此 ACL 另行收紧。
 			_ = env.FS.Chmod(path, 0o600)
+			restrictSecret(env.FS, path)
 		}
 	}
 	return nil
+}
+
+// writeFileAtomic writes data through a same-directory temporary file and renames it into place,
+// so an interrupted sync never leaves a half-written configuration or script behind. The temporary
+// file is created with the requested mode; a failed rename removes it instead of leaking a stray
+// dotfile. | writeFileAtomic 先写同目录临时文件再改名就位，因此中断的同步不会留下写了一半的
+// 配置或脚本。临时文件按请求的模式创建；改名失败时删除它，不遗留多余的点文件。
+func writeFileAtomic(fs afero.Fs, path string, data []byte, mode os.FileMode) error {
+	tmp, err := afero.TempFile(fs, filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	cleanup := func() {
+		_ = tmp.Close()
+		_ = fs.Remove(tmpName)
+	}
+	if err := fs.Chmod(tmpName, mode); err != nil {
+		cleanup()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		cleanup()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		cleanup()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = fs.Remove(tmpName)
+		return err
+	}
+	if err := fs.Rename(tmpName, path); err != nil {
+		_ = fs.Remove(tmpName)
+		return err
+	}
+	return nil
+}
+
+// restrictSecret tightens permissions only for a real OS filesystem. A MemFS used by tests has no
+// Windows ACL to edit, and icacls against a virtual path would fail for no benefit. |
+// restrictSecret 只对真实的 OS 文件系统收紧权限。测试使用的 MemFS 没有可编辑的 Windows ACL，
+// 对虚拟路径运行 icacls 只会失败而无收益。
+func restrictSecret(fs afero.Fs, path string) {
+	if fs == nil || fs.Name() != "os" {
+		return
+	}
+	// The caller already wrote the file; a failed ACL tightening is reported by the caller's
+	// write path where it matters, and here it must not turn a successful sync into a failure.
+	// | 调用方已经写入文件；ACL 收紧失败不应把一次成功的同步变成失败。
+	_ = fssecure.Restrict(path, 0o600)
 }
 
 // rollbackSyncFiles restores every file already written by a failed apply, removes files that did
@@ -138,7 +195,7 @@ func rollbackSyncFiles(env *Env, dir string, applied []syncFile, cause error) er
 		if mode == 0 {
 			mode = 0o644
 		}
-		if err := afero.WriteFile(env.FS, path, file.Existing, mode); err != nil {
+		if err := writeFileAtomic(env.FS, path, file.Existing, mode); err != nil {
 			causes = append(causes, errs.WrapDetail(err, ErrSyncApply, "restore %[1]s after rollback | 回滚时恢复 %[1]s", file.Rel))
 		}
 	}

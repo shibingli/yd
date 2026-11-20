@@ -46,9 +46,9 @@
       "Label" (tr "field.status") "LabelKey" "field.status" "LabelHidden" true
       "Options" (list
         (dict "Value" "" "Label" (tr "ui.all") "Key" "ui.all" "Selected" (eq .Status ""))
-        (dict "Value" "draft" "Label" (tr "workflow.status.draft") "Key" "workflow.status.draft" "Selected" (eq .Status "draft"))
-        (dict "Value" "published" "Label" (tr "workflow.status.published") "Key" "workflow.status.published" "Selected" (eq .Status "published"))
-        (dict "Value" "disabled" "Label" (tr "workflow.status.disabled") "Key" "workflow.status.disabled" "Selected" (eq .Status "disabled"))))}}
+        (dict "Value" .WorkflowDefinitionDraft "Label" (tr "workflow.status.draft") "Key" "workflow.status.draft" "Selected" (eq .Status .WorkflowDefinitionDraft))
+        (dict "Value" .WorkflowDefinitionPublished "Label" (tr "workflow.status.published") "Key" "workflow.status.published" "Selected" (eq .Status .WorkflowDefinitionPublished))
+        (dict "Value" .WorkflowDefinitionDisabled "Label" (tr "workflow.status.disabled") "Key" "workflow.status.disabled" "Selected" (eq .Status .WorkflowDefinitionDisabled))))}}
     <noscript><button type="submit" class="yd-btn">{{ tr "ui.search" }}</button></noscript>
 </form>
 

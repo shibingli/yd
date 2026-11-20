@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/shibingli/yd/core/fssecure"
 	"github.com/shibingli/ydx/errs"
 )
 
@@ -48,6 +49,14 @@ func New(root string) (*Store, error) {
 		return nil, errs.Wrap(err, ErrRootInvalid)
 	}
 	if err := os.MkdirAll(abs, 0o750); err != nil {
+		return nil, errs.Wrap(err, ErrRootInvalid)
+	}
+	// The attachment root holds user files and may include private uploads. Unix gets 0750; Windows
+	// gets an explicit owner/System/Administrators ACL, because chmod leaves inherited ACEs intact.
+	// The ACL is applied recursively so files already in the root are covered too. |
+	// 附件根目录保存用户文件，可能包含私密上传。Unix 施加 0750；Windows 施加显式的所有者/System/
+	// Administrators ACL，因为 chmod 不会清除继承 ACE。ACL 递归施加，根目录内已有文件同样被覆盖。
+	if err := fssecure.Restrict(abs, 0o750); err != nil {
 		return nil, errs.Wrap(err, ErrRootInvalid)
 	}
 	return &Store{root: abs}, nil

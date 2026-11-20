@@ -4,7 +4,7 @@
 */}}
 {{- define "mgr/partials/dictionaries/item_form" -}}
 <div class="yd-drawer__head">
-  <h2 class="yd-section__title">{{ if eq .Mode "edit" }}{{ tr "dictionary.item.edit" }}{{ else }}{{ tr "dictionary.item.new" }}{{ end }}</h2>
+  <h2 class="yd-section__title">{{ if .IsEdit }}{{ tr "dictionary.item.edit" }}{{ else }}{{ tr "dictionary.item.new" }}{{ end }}</h2>
   <p class="yd-section__hint">{{ .TypeLabel }} <code class="yd-code">{{ .TypeCode }}</code></p>
 </div>
 <form class="yd-form" method="post" action="{{ .BasePath }}/{{ .TypeID }}/items"
@@ -18,7 +18,7 @@
     "ID" "yd-dictionary-item-value" "Name" "value" "Type" "text" "Value" .Item.Value
     "Label" (tr "dictionary.item.value") "LabelKey" "dictionary.item.value"
     "Hint" (tr "dictionary.item.value_hint") "HintKey" "dictionary.item.value_hint"
-    "MaxLength" 64 "Required" true "Readonly" (eq .Mode "edit"))}}
+    "MaxLength" 64 "Required" true "Readonly" (.IsEdit))}}
   {{template "components.form.field" (dict
     "ID" "yd-dictionary-item-label" "Name" "label" "Type" "text" "Value" .Item.LabelZH
     "Label" (tr "dictionary.item.label") "LabelKey" "dictionary.item.label"
@@ -35,8 +35,8 @@
     "ID" "yd-dictionary-item-status" "Name" "status"
     "Label" (tr "field.status") "LabelKey" "field.status"
     "Options" (list
-      (dict "Value" "enabled" "Label" (tr "status.active") "Key" "status.active" "Selected" (eq .Item.Status "enabled"))
-      (dict "Value" "disabled" "Label" (tr "status.disabled") "Key" "status.disabled" "Selected" (eq .Item.Status "disabled"))))}}
+      (dict "Value" .StatusEnabled "Label" (tr "status.active") "Key" "status.active" "Selected" (eq .Item.Status .StatusEnabled))
+      (dict "Value" .StatusDisabled "Label" (tr "status.disabled") "Key" "status.disabled" "Selected" (eq .Item.Status .StatusDisabled))))}}
   {{template "components.form.toggle" (dict
     "ID" "yd-dictionary-item-default" "Name" "default" "Value" "1"
     "Label" (tr "dictionary.item.default") "LabelKey" "dictionary.item.default"

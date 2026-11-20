@@ -30,7 +30,7 @@
 */}}
 {{- define "mgr/partials/users/form" -}}
 <form class="yd-form" method="post" action="/mgr/users"
-      data-yd-encrypt="sm2" data-yd-pubkey="{{ .KeyEndpoint }}"
+      data-yd-encrypt="{{ .EncryptScheme }}" data-yd-pubkey="{{ .KeyEndpoint }}"
       hx-post="/mgr/users" hx-target="#yd-workspace" hx-swap="innerMorph"
       hx-status:400="target:#yd-drawer-errors swap:innerHTML"
       hx-status:409="target:#yd-drawer-errors swap:innerHTML"

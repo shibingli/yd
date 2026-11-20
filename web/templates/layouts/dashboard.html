@@ -31,7 +31,7 @@
 <body class="yd-shell yd-shell--app bg-surface text-content antialiased"
       hx-target:inherited="#yd-workspace"
       hx-swap:inherited="innerMorph"
-      hx-push-url:inherited="true">
+      hx-push-url:inherited="false">
 {{/* 全局请求进度条放在 body 直属位置：顶栏是层叠上下文（定位元素 + z-index），固定定位的进度条
      若放在顶栏内部，移动端侧栏（z-index 70）会把它盖住。 | The global request bar sits directly under
      <body>: the top bar is a positioned stacking context (z-index), so a fixed bar nested inside it would

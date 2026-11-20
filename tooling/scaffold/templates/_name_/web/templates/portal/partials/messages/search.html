@@ -43,6 +43,13 @@
     </article>
     {{- end }}
   </div>
+  {{- if or .SearchPrevHref .SearchNextHref }}
+  <div hx-boost="true" hx-target="#yd-msg-main" hx-swap="innerMorph">
+    {{template "components.navigation.pagination" (dict
+      "PrevHref" .SearchPrevHref "NextHref" .SearchNextHref "ShowLabels" true
+      "Label" (tr "message.search_results") "LabelKey" "message.search_results")}}
+  </div>
+  {{- end }}
   {{- else }}
   <p class="yd-hint yd-msg-search-results__empty">{{ tr "message.no_results" }}</p>
   {{- end }}

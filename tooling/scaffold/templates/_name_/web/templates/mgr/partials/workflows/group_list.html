@@ -31,8 +31,8 @@
         <td class="yd-table__td">{{ with .Role }}<code class="yd-code">{{ . }}</code>{{ else }}—{{ end }}</td>
         <td class="yd-table__td yd-table__td--num">{{ .MemberCount }}</td>
         <td class="yd-table__td">
-          {{- if eq .Status "enabled" }}{{ template "components.display.badge" (dict "Tone" "success" "LabelKey" "status.active") }}
-          {{- else }}{{ template "components.display.badge" (dict "Tone" "warn" "LabelKey" "status.disabled") }}{{ end }}
+          {{- $badge := index $.WorkflowGroupBadges .Status -}}
+          {{- if $badge.LabelKey }}{{ template "components.display.badge" (dict "Tone" $badge.Tone "LabelKey" $badge.LabelKey) }}{{ end }}
         </td>
         <td class="yd-table__td yd-table__td--actions">
           <details class="yd-menu" data-yd-menu>

@@ -32,7 +32,9 @@ func (s *Store) ListAudit(ctx context.Context, tenantID string, filter messaging
 		offset = 0
 	}
 	var out []messaging.AuditEntry
-	if err := query.Order("created_at DESC").Offset(offset).Limit(filter.PageSize).Find(&out).Error; err != nil {
+	// id 是决胜列：同一时钟刻度的两条审计记录在翻页时必须保持稳定顺序。
+	// The id is the tie-breaker: two audit rows written at the same clock tick must page in a stable order.
+	if err := query.Order("created_at DESC, id DESC").Offset(offset).Limit(filter.PageSize).Find(&out).Error; err != nil {
 		return nil, 0, queryError(err)
 	}
 	return out, int(total), nil

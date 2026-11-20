@@ -39,17 +39,17 @@
         <tr class="yd-table__row">
           <td class="yd-table__td yd-table__td--num">v{{ .Version }}</td>
           <td class="yd-table__td">
-            {{- if eq .Status "published" }}{{ template "components.display.badge" (dict "Tone" "success" "LabelKey" "workflow.version.published") }}
-            {{- else }}{{ template "components.display.badge" (dict "Tone" "muted" "LabelKey" "workflow.version.draft") }}{{ end }}
+            {{- $badge := index $.WorkflowVersionBadges .Status -}}
+            {{- if $badge.LabelKey }}{{ template "components.display.badge" (dict "Tone" $badge.Tone "LabelKey" $badge.LabelKey) }}{{ end }}
           </td>
           <td class="yd-table__td">{{ if .PublishedAt.IsZero }}—{{ else }}{{ .PublishedAt.Format "2006-01-02 15:04" }}{{ end }}</td>
           <td class="yd-table__td">{{ with .Note }}{{ . }}{{ else }}—{{ end }}</td>
           <td class="yd-table__td yd-table__td--actions">
-            {{- if or (and $.CanManage (eq .Status "draft")) (eq .Status "published") }}
+            {{- if or (and $.CanManage (eq .Status $.WorkflowVersionDraft)) (eq .Status $.WorkflowVersionPublished) }}
             <details class="yd-menu" data-yd-menu>
               <summary class="yd-icon-btn" aria-label="{{ tr "ui.actions" }}">{{ template "partials/icon" "lucide-more-horizontal" }}</summary>
               <div class="yd-menu__panel" role="menu">
-                {{- if and $.CanManage (eq .Status "draft") }}
+                {{- if and $.CanManage (eq .Status $.WorkflowVersionDraft) }}
                 <form method="post" action="/mgr/workflows/{{ $.Definition.ID }}/versions/{{ .ID }}/publish"
                       hx-post="/mgr/workflows/{{ $.Definition.ID }}/versions/{{ .ID }}/publish" hx-target="#yd-drawer-body" hx-swap="innerHTML"
                       hx-status:409="target:#yd-drawer-errors swap:innerHTML"
@@ -68,7 +68,7 @@
                     {{ template "partials/icon" "lucide-trash-2" }}{{ tr "ui.delete" }}
                   </button>
                 </form>
-                {{- else if eq .Status "published" }}
+                {{- else if eq .Status $.WorkflowVersionPublished }}
                 <a class="yd-menu__item yd-menu__item--with-icon" role="menuitem" href="/mgr/workflows/export?format=bpmn&version={{ .ID }}">
                   {{ template "partials/icon" "lucide-file-code" }}{{ tr "workflow.export_bpmn" }}
                 </a>

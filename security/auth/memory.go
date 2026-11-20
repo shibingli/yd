@@ -568,6 +568,104 @@ func (m *memoryStore) SetDefaultTenant(_ context.Context, userID, tenantID strin
 	return nil
 }
 
+// ReplaceUserTenants atomically replaces every membership of one user and its default tenant. | ReplaceUserTenants 原子地替换
+// 一个用户的全部成员关系及其默认租户。
+//
+// The whole map is validated before anything is touched, so an unknown tenant, an unknown role, a missing home tenant
+// or a default tenant outside the set leaves the store exactly as it was. | 整个集合在改动任何数据之前先完成校验，
+// 因此未知租户、未知角色、缺少身份租户或默认租户不在集合内时，库中状态保持原样。
+func (m *memoryStore) ReplaceUserTenants(_ context.Context, userID string, memberships []TenantMembership, defaultTenantID string) error {
+	userID = strings.TrimSpace(userID)
+	defaultTenantID = strings.TrimSpace(defaultTenantID)
+	if userID == "" || defaultTenantID == "" {
+		return ErrTenantRequired
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	stored, ok := m.users[userID]
+	if !ok {
+		return ErrNotFound
+	}
+	wanted, err := validateTenantMemberships(userID, stored.TenantID, memberships, defaultTenantID)
+	if err != nil {
+		return err
+	}
+	for tenantID, entry := range wanted {
+		if _, ok := m.tenants[tenantID]; !ok {
+			return ErrNotFound
+		}
+		// A nil role set keeps the stored roles of an existing membership; it still counts as valid because the
+		// names were validated when they were written. | nil 角色保留已存在成员关系的库中角色；这些名字写入时
+		// 已经校验过，因此仍然有效。
+		if entry.Roles == nil {
+			if _, exists := m.members[tenantID][userID]; exists {
+				continue
+			}
+		}
+		if err := m.requireRolesLocked(tenantID, entry.Roles); err != nil {
+			return err
+		}
+	}
+
+	// Every check passed: mutate the maps. | 全部校验通过后才改动 map。
+	for tenantID := range m.userMembers[userID] {
+		if _, keep := wanted[tenantID]; keep {
+			continue
+		}
+		delete(m.members[tenantID], userID)
+		delete(m.userMembers[userID], tenantID)
+	}
+	createdAt := stored.CreatedAt
+	for tenantID, entry := range wanted {
+		if current, exists := m.members[tenantID][userID]; exists {
+			if entry.Roles != nil {
+				current.roles = append([]string(nil), entry.Roles...)
+			}
+			continue
+		}
+		m.addMembershipLocked(userID, tenantID, entry.Roles, tenantID == defaultTenantID, createdAt)
+	}
+	for tenantID, entry := range m.userMembers[userID] {
+		entry.defaultTenant = tenantID == defaultTenantID
+	}
+	stored.DefaultTenantID = defaultTenantID
+	return nil
+}
+
+// validateTenantMemberships normalises and validates a replacement set without touching the store. | validateTenantMemberships
+// 在不改动存储的前提下归一化并校验一份替换集合。
+//
+// It reports ErrInvalidInput for an empty or duplicated set or for a default tenant outside it, and ErrConflict when
+// the home tenant is missing. | 集合为空、存在重复租户，或默认租户不在集合内时返回 ErrInvalidInput；缺少身份租户时返回
+// ErrConflict。
+func validateTenantMemberships(userID, homeTenantID string, memberships []TenantMembership, defaultTenantID string) (map[string]TenantMembership, error) {
+	if len(memberships) == 0 {
+		return nil, errs.Detail(ErrInvalidInput, "at least one membership is required for user %[1]q | 用户 %[1]q 至少需要一条成员关系", userID)
+	}
+	wanted := make(map[string]TenantMembership, len(memberships))
+	for _, membership := range memberships {
+		tenantID := strings.TrimSpace(membership.TenantID)
+		if tenantID == "" {
+			return nil, errs.Detail(ErrInvalidInput, "a membership names no tenant | 有一条成员关系没有指明租户")
+		}
+		if _, dup := wanted[tenantID]; dup {
+			return nil, errs.Detail(ErrInvalidInput, "tenant %[1]q appears twice | 租户 %[1]q 出现了两次", tenantID)
+		}
+		wanted[tenantID] = TenantMembership{TenantID: tenantID, Roles: membership.Roles}
+	}
+	if _, ok := wanted[homeTenantID]; !ok {
+		return nil, errs.Detail(ErrConflict, "the home tenant cannot be removed | 身份租户不可移除")
+	}
+	if _, ok := wanted[defaultTenantID]; !ok {
+		return nil, errs.Detail(ErrInvalidInput, "the default tenant must be one of the memberships | 默认租户必须是成员租户之一")
+	}
+	return wanted, nil
+}
+
+// The compiler pins the optional capability. | 编译期固定可选能力。
+var _ TenantReplacer = (*memoryStore)(nil)
+
 // UpsertRole stores a role, replacing the one with the same id or, inside the
 // tenant, the one with the same name. | UpsertRole 存入角色，覆盖同 ID 或同租户内同名的既有角色。
 //

@@ -61,8 +61,11 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
 
-  // TRANSPORTS lists the ladder in preference order. | TRANSPORTS 按优先级列出阶梯。
-  var TRANSPORTS = ['webtransport', 'websocket', 'sse'];
+  // TRANSPORT names the three wire transports; the literals appear only here. TRANSPORTS lists
+  // the ladder in preference order and is derived from it. |
+  // TRANSPORT 命名三种传输；字面量只在这里出现。TRANSPORTS 按优先级列出阶梯并由它派生。
+  var TRANSPORT = {WEBTRANSPORT: 'webtransport', WEBSOCKET: 'websocket', SSE: 'sse'};
+  var TRANSPORTS = [TRANSPORT.WEBTRANSPORT, TRANSPORT.WEBSOCKET, TRANSPORT.SSE];
 
   // chooseTransport picks the best transport the environment can carry. |
   // chooseTransport 选择当前环境能承载的最好传输。
@@ -72,13 +75,13 @@
       return caps.force;
     }
     if (caps.secure && caps.webtransport) {
-      return 'webtransport';
+      return TRANSPORT.WEBTRANSPORT;
     }
     if (caps.websocket) {
-      return 'websocket';
+      return TRANSPORT.WEBSOCKET;
     }
     if (caps.sse) {
-      return 'sse';
+      return TRANSPORT.SSE;
     }
     return null;
   }
@@ -187,13 +190,13 @@
 
   // available reports whether one transport can be tried. | available 报告某个传输是否可试。
   Channel.prototype.available = function (name, caps) {
-    if (name === 'webtransport') {
+    if (name === TRANSPORT.WEBTRANSPORT) {
       return !!this.options.webtransportURL && caps.webtransport && caps.secure;
     }
-    if (name === 'websocket') {
+    if (name === TRANSPORT.WEBSOCKET) {
       return !!this.options.websocketURL && caps.websocket;
     }
-    if (name === 'sse') {
+    if (name === TRANSPORT.SSE) {
       return !!this.options.sseURL && caps.sse;
     }
     return false;
@@ -201,13 +204,13 @@
 
   // open establishes one transport. | open 建立一种传输。
   Channel.prototype.open = function (name) {
-    if (name === 'webtransport') {
+    if (name === TRANSPORT.WEBTRANSPORT) {
       return this.openWebTransport(this.options.webtransportURL);
     }
-    if (name === 'websocket') {
+    if (name === TRANSPORT.WEBSOCKET) {
       return this.openWebSocket(this.options.websocketURL);
     }
-    if (name === 'sse') {
+    if (name === TRANSPORT.SSE) {
       return this.openSSE(this.options.sseURL);
     }
     return Promise.reject(new Error('yd.realtime: unknown transport ' + name));
@@ -226,8 +229,8 @@
     await this.writer.write(new Uint8Array([0, 0, 0, 0]));
     this.readStream(stream.readable.getReader());
     var self = this;
-    wt.closed.then(function () { self.emit('yd:realtime:close', { transport: 'webtransport' }); })
-      .catch(function (err) { self.emit('yd:realtime:close', { transport: 'webtransport', error: err }); });
+    wt.closed.then(function () { self.emit('yd:realtime:close', { transport: TRANSPORT.WEBTRANSPORT }); })
+      .catch(function (err) { self.emit('yd:realtime:close', { transport: TRANSPORT.WEBTRANSPORT, error: err }); });
   };
 
   // readStream drains one readable stream into the decoder. | readStream 把可读流排空进解码器。
@@ -243,7 +246,7 @@
       }
     } catch (err) {
       if (!self.closed) {
-        self.emit('yd:realtime:error', { transport: 'webtransport', error: err });
+        self.emit('yd:realtime:error', { transport: TRANSPORT.WEBTRANSPORT, error: err });
       }
     }
   };
@@ -265,7 +268,7 @@
           self.deliverFrames(self.decoder.push(new Uint8Array(event.data)));
         }
       };
-      ws.onclose = function () { self.emit('yd:realtime:close', { transport: 'websocket' }); };
+      ws.onclose = function () { self.emit('yd:realtime:close', { transport: TRANSPORT.WEBSOCKET }); };
     });
   };
 
@@ -304,15 +307,15 @@
 
   // send writes one message upstream. | send 向上游写一条消息。
   Channel.prototype.send = async function (text) {
-    if (this.transport === 'webtransport' && this.writer) {
+    if (this.transport === TRANSPORT.WEBTRANSPORT && this.writer) {
       await this.writer.write(encodeFrame(text));
       return;
     }
-    if (this.transport === 'websocket' && this.ws && this.ws.readyState === 1) {
+    if (this.transport === TRANSPORT.WEBSOCKET && this.ws && this.ws.readyState === 1) {
       this.ws.send(text);
       return;
     }
-    if (this.transport === 'sse' && this.options.sseSendURL) {
+    if (this.transport === TRANSPORT.SSE && this.options.sseSendURL) {
       var resp = await fetch(this.options.sseSendURL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain; charset=utf-8' },

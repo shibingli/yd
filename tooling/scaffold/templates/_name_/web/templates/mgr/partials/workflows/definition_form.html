@@ -2,17 +2,17 @@
   mgr/partials/workflows/definition_form.html —— 流程定义新建/编辑抽屉。
   mgr/partials/workflows/definition_form.html — the definition create/edit drawer.
 
-  数据契约 | Data contract: .Definition、.Mode（create|edit）。
+  数据契约 | Data contract: .Definition、.IsEdit（true 表示编辑，false 表示新建）。
 */}}
 {{- define "mgr/partials/workflows/definition_form" -}}
 <div class="yd-drawer__head">
-  <h2 class="yd-section__title">{{ if eq .Mode "edit" }}{{ tr "workflow.edit" }}{{ else }}{{ tr "workflow.new" }}{{ end }}</h2>
+  <h2 class="yd-section__title">{{ if .IsEdit }}{{ tr "workflow.edit" }}{{ else }}{{ tr "workflow.new" }}{{ end }}</h2>
   <p class="yd-section__hint">{{ tr "workflow.form_hint" }}</p>
 </div>
 <form class="yd-form" method="post"
       data-yd-confirm="{{ tr "confirm.save_workflow" }}"
-      action="{{ if eq .Mode "edit" }}/mgr/workflows/{{ .Definition.ID }}{{ else }}/mgr/workflows{{ end }}"
-      hx-post="{{ if eq .Mode "edit" }}/mgr/workflows/{{ .Definition.ID }}{{ else }}/mgr/workflows{{ end }}"
+      action="{{ if .IsEdit }}/mgr/workflows/{{ .Definition.ID }}{{ else }}/mgr/workflows{{ end }}"
+      hx-post="{{ if .IsEdit }}/mgr/workflows/{{ .Definition.ID }}{{ else }}/mgr/workflows{{ end }}"
       hx-target="#yd-workflow-definitions" hx-swap="innerMorph"
       hx-status:409="target:#yd-drawer-errors swap:innerHTML"
       hx-status:422="target:#yd-drawer-errors swap:innerHTML">
@@ -20,7 +20,7 @@
     "ID" "yd-workflow-key" "Name" "key" "Type" "text" "Value" .Definition.Key
     "Label" (tr "workflow.field.key") "LabelKey" "workflow.field.key"
     "Hint" (tr "workflow.field.key_hint") "HintKey" "workflow.field.key_hint"
-    "MaxLength" 64 "Required" true "Readonly" (eq .Mode "edit"))}}
+    "MaxLength" 64 "Required" true "Readonly" (.IsEdit))}}
   {{template "components.form.field" (dict
     "ID" "yd-workflow-name" "Name" "name" "Type" "text" "Value" .Definition.Name
     "Label" (tr "field.name") "LabelKey" "field.name" "MaxLength" 120 "Required" true)}}

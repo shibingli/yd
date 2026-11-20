@@ -153,10 +153,10 @@ asynq:
 |---|---|
 | `GET /messages` | 消息中心（左侧会话/联系人双页签与检索/置顶入口；右侧历史与撰写区） |
 | `GET /messages/:id` | 打开会话 |
-| `GET /messages/list` | 检索结果片段 |
 | `GET /messages/conversations` | 会话列表片段 |
 | `GET /messages/:id/thread` | 完整线程片段 |
-| `GET /messages/:id/history` | 仅历史消息片段（实时刷新用，不重建撰写区；`?after=<message id>` 只返回更新的消息，供客户端 `beforeend` 追加；锚点失效或落后超过 50 条时返回整段并带 `HX-Reswap: innerMorph`） |
+| `GET /messages/list` | 混合检索结果；`page` 为页码，分页导航保留全部筛选条件 |
+| `GET /messages/:id/history` | 仅历史消息片段（实时刷新用，不重建撰写区；`?after=<message id>` 只返回更新的消息，供客户端 `beforeend` 追加；锚点失效或落后超过 50 条时返回整段并带 `HX-Reswap: innerMorph`；`?limit=N` 返回最新 N 条（50–1000），片段顶部按 `HasEarlier` 渲染「加载更早」按钮，点击以 `innerMorph` 扩大窗口且不重建撰写区） |
 | `GET /messages/:id/edit` | 编辑消息抽屉 |
 | `GET /mgr/messages/system/new` | 系统公告抽屉 |
 | `GET /messages/groups/:id/settings` | 群设置抽屉 |
@@ -164,7 +164,7 @@ asynq:
 | `GET /mgr/messages/:id/edit` | 管理端编辑抽屉 |
 | `POST /mgr/messages/:id` | 管理端保存编辑并刷新治理列表 |
 | `POST /mgr/messages/:id/recall` | 管理端撤回并刷新治理列表 |
-| `GET /friends` | 好友页 |
+| `GET /friends` | 好友页；`page` 为页码（每页 50），实时好友事件刷新时保留当前页 |
 | `GET /mgr/message-settings` | 消息类型/分组/标签设置 |
 | `GET /mgr/messages` | 管理员治理 |
 | `GET /mgr/messages/audit` | 审计 |
@@ -259,6 +259,8 @@ asynq:
   菜单只在账号具备 `message:read` 且消息中心可用时显示未读入口，退出登录仍是独立按钮。
 - 实时：`#yd-shell` 持有唯一 WebSocket 连接；导航或租户切换会重建外壳，连接随之重连并使用新令牌。
   新消息事件只带 `?after=<最后一条消息 ID>` 重取 `/messages/:id/history`，并以 `beforeend` 追加进历史区；
+  更早的历史由片段顶部的「加载更早」按钮以 `?limit=N` 扩大窗口（每次 +100，上限 1000），
+  搜索结果与好友列表同样使用分页导航；
   编辑、撤回、置顶与已读回执仍走整段 `innerMorph`。撰写区、草稿与附件标签因此不会被重建。
 - 检索：检索框只换 `#yd-msg-main`，服务端按 `HX-Target` 只渲染结果片段；会话栏、置顶条与联系人面板不参与。
   输入期间使用 `hx-replace-url`，不会为每个停顿写一条历史记录；清空检索时服务端以 `HX-Retarget` 退回工作区。

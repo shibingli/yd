@@ -50,7 +50,16 @@
   var ONE_YEAR = 31536000; // cookie max-age in seconds | cookie 有效期（秒）
   var FLASH_TIMEOUT = 6000; // auto dismiss delay of info/success flashes | info/success 闪现消息的自动消失延时
   var CURRENCY = 'CNY'; // default currency of [data-yd-format="currency"] | [data-yd-format="currency"] 的默认币种
-  var VALID_THEMES = { light: true, dark: true, system: true };
+  // THEMES and THEME_UI name the stored three-state choice and the switch markup's spelling of it.
+  // The literals appear only in this block; every comparison and assignment references the objects. |
+  // THEMES 与 THEME_UI 命名存储的三态选择与切换控件对它的写法；字面量只出现在本块，
+  // 其余比较与赋值都引用这两个对象。
+  var THEMES = {LIGHT: 'light', DARK: 'dark', SYSTEM: 'system'};
+  var THEME_UI = {LIGHT: 'light', DARK: 'dark', AUTO: 'auto'};
+  var VALID_THEMES = {};
+  VALID_THEMES[THEMES.LIGHT] = true;
+  VALID_THEMES[THEMES.DARK] = true;
+  VALID_THEMES[THEMES.SYSTEM] = true;
 
   // win returns the global object so the file stays testable outside a browser.
   // win 返回全局对象，使本文件在浏览器之外也可测试。
@@ -189,12 +198,12 @@
   function systemTheme() {
     var mq = win().matchMedia;
     if (typeof mq !== 'function') {
-      return 'light';
+      return THEMES.LIGHT;
     }
     try {
-      return mq('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      return mq('(prefers-color-scheme: dark)').matches ? THEMES.DARK : THEMES.LIGHT;
     } catch (err) {
-      return 'light';
+      return THEMES.LIGHT;
     }
   }
 
@@ -204,8 +213,8 @@
     // so a cookie written by either surface keeps the same three-state meaning. |
     // 生成项目把跟随系统写作 "auto"，本 UI 写作 "system"。归一化后，任一侧写入的 cookie 都保持同一
     // 三态语义。
-    if (theme === 'auto') {
-      theme = 'system';
+    if (theme === THEME_UI.AUTO) {
+      theme = THEMES.SYSTEM;
     }
     return VALID_THEMES[theme] ? theme : '';
   }
@@ -222,8 +231,8 @@
     }
     var theme = d.documentElement.getAttribute('data-yd-theme-choice') ||
       d.documentElement.getAttribute('data-theme');
-    if (theme === 'auto') {
-      theme = 'system';
+    if (theme === THEME_UI.AUTO) {
+      theme = THEMES.SYSTEM;
     }
     return VALID_THEMES[theme] ? theme : '';
   }
@@ -231,8 +240,8 @@
   // applyTheme sets <html data-theme> to the resolved value and keeps every switch in sync.
   // applyTheme 把 <html data-theme> 设为解析后的值，并同步所有切换控件。
   function applyTheme(theme, persist) {
-    var choice = VALID_THEMES[theme] ? theme : 'system';
-    var resolved = choice === 'system' ? systemTheme() : choice;
+    var choice = VALID_THEMES[theme] ? theme : THEMES.SYSTEM;
+    var resolved = choice === THEMES.SYSTEM ? systemTheme() : choice;
     var d = win().document;
     if (d && d.documentElement) {
       d.documentElement.setAttribute('data-theme', resolved);
@@ -240,7 +249,7 @@
     // The switch markup spells the system choice "auto" so one CSS rule can drive both the label and
     // the glyph; the stored preference keeps the three-state names. | 切换控件用 "auto" 表示跟随系统，
     // 使一条 CSS 规则同时驱动标签与图标；存储偏好仍使用三态名称。
-    var uiChoice = choice === 'system' ? 'auto' : choice;
+    var uiChoice = choice === THEMES.SYSTEM ? THEME_UI.AUTO : choice;
     if (d && d.documentElement) {
       // CSS also keys the first-paint label/glyph off this attribute; keeping it in step is what lets
       // the interactive switch win over the boot-time value without showing two labels. |
@@ -248,7 +257,7 @@
       d.documentElement.setAttribute('data-yd-theme-choice', uiChoice);
     }
     all('[data-yd-theme-toggle]').forEach(function (button) {
-      button.setAttribute('aria-pressed', resolved === 'dark' ? 'true' : 'false');
+      button.setAttribute('aria-pressed', resolved === THEMES.DARK ? 'true' : 'false');
       button.setAttribute('data-yd-theme-state', uiChoice);
     });
     all('[data-yd-theme-set]').forEach(function (select) {
@@ -274,14 +283,14 @@
   function currentTheme() {
     var select = one('[data-yd-theme-set]');
     var fromSelect = select && select.value;
-    return VALID_THEMES[fromSelect] ? fromSelect : storedTheme() || 'system';
+    return VALID_THEMES[fromSelect] ? fromSelect : storedTheme() || THEMES.SYSTEM;
   }
 
   // toggleTheme flips light and dark; from "system" it flips whatever is on screen now.
   // toggleTheme 在浅色与深色之间切换；当前为 system 时按屏幕上正在显示的主题翻转。
   function toggleTheme() {
     var resolved = applyTheme(currentTheme(), false);
-    return applyTheme(resolved === 'dark' ? 'light' : 'dark', true);
+    return applyTheme(resolved === THEMES.DARK ? THEMES.LIGHT : THEMES.DARK, true);
   }
 
   /* ---------------------------------------------------------------- sidebar | 侧边栏 */
@@ -489,6 +498,23 @@
     noticeItem: null
   };
 
+  /* REALTIME_STATES, CHANNEL_KINDS and CLOSE_REASONS name every machine value the realtime
+     banner, channel state and extension events share. The literals live only in this block;
+     every comparison and attribute write references these objects. |
+     REALTIME_STATES、CHANNEL_KINDS 与 CLOSE_REASONS 命名实时横幅、通道状态与扩展事件共用的全部机器值。
+     字面量只出现在本块，其余比较与属性写入都引用这些对象。 */
+  var REALTIME_STATES = {
+    CONNECTING: 'connecting',
+    OPEN: 'open',
+    CLOSED: 'closed',
+    FAILED: 'failed',
+    OFFLINE: 'offline',
+    IDLE: 'idle',
+    RECONNECTING: 'reconnecting'
+  };
+  var CHANNEL_KINDS = {SSE: 'sse', WS: 'ws'};
+  var CLOSE_REASONS = {REMOVED: 'removed', CLEANUP: 'cleanup', CANCELLED: 'cancelled', MESSAGE: 'message'};
+
   // realtimeElements returns every element that owns an SSE or WebSocket stream. | realtimeElements
   // 返回所有承载 SSE 或 WebSocket 数据流的元素。
   function realtimeElements() {
@@ -501,8 +527,8 @@
   function realtimeChannel(element) {
     if (!element.__ydRealtime) {
       element.__ydRealtime = {
-        kind: getAttr(element, 'hx-sse:connect') !== null ? 'sse' : 'ws',
-        state: 'connecting',
+        kind: getAttr(element, 'hx-sse:connect') !== null ? CHANNEL_KINDS.SSE : CHANNEL_KINDS.WS,
+        state: REALTIME_STATES.CONNECTING,
         attempt: 0,
         wasDown: false,
         lastEventId: ''
@@ -525,13 +551,12 @@
       return;
     }
     pill.setAttribute('data-yd-connection-state', state);
-    var keys = {
-      open: 'realtime.status.open',
-      connecting: 'realtime.status.connecting',
-      closed: 'realtime.status.closed',
-      idle: 'realtime.status.idle'
-    };
-    applyKey(pill, keys[state] || keys.idle);
+    var keys = {};
+    keys[REALTIME_STATES.OPEN] = 'realtime.status.open';
+    keys[REALTIME_STATES.CONNECTING] = 'realtime.status.connecting';
+    keys[REALTIME_STATES.CLOSED] = 'realtime.status.closed';
+    keys[REALTIME_STATES.IDLE] = 'realtime.status.idle';
+    applyKey(pill, keys[state] || keys[REALTIME_STATES.IDLE]);
   }
 
   function connectionBanner() {
@@ -561,14 +586,14 @@
     banner.hidden = false;
     var text = one('[data-yd-connection-text]', banner) || one('.yd-flash__text', banner);
     if (text) {
-      var key = state === 'offline'
+      var key = state === REALTIME_STATES.OFFLINE
         ? 'realtime.status.offline'
-        : (state === 'closed' ? 'realtime.status.failed' : 'realtime.status.reconnecting');
+        : (state === REALTIME_STATES.CLOSED ? 'realtime.status.failed' : 'realtime.status.reconnecting');
       applyKey(text, key);
     }
     var badge = one('[data-yd-connection-attempt]', banner);
     if (badge) {
-      var numbered = attempt > 0 && state !== 'offline' && state !== 'closed';
+      var numbered = attempt > 0 && state !== REALTIME_STATES.OFFLINE && state !== REALTIME_STATES.CLOSED;
       badge.hidden = !numbered;
       badge.textContent = numbered ? '#' + attempt : '';
     }
@@ -638,12 +663,12 @@
     var attempt = 0;
     elements.forEach(function (element) {
       var channel = realtimeChannel(element);
-      if (channel.state === 'open') {
+      if (channel.state === REALTIME_STATES.OPEN) {
         open++;
         return;
       }
       down++;
-      if (channel.state === 'failed') {
+      if (channel.state === REALTIME_STATES.FAILED) {
         failed++;
       }
       if (channel.attempt > attempt) {
@@ -652,7 +677,7 @@
     });
 
     if (elements.length === 0) {
-      setConnection('idle');
+      setConnection(REALTIME_STATES.IDLE);
       hideConnectionBanner();
       realtimeState.hadDrop = false;
       clearConnectionNotice();
@@ -667,13 +692,13 @@
       // recovery exactly once. | 离线本身就是一次掉线；恢复时据此只提示一次。
       realtimeState.hadDrop = true;
       clearConnectionNotice();
-      setConnection('connecting');
-      showConnectionBanner('offline', 0);
+      setConnection(REALTIME_STATES.CONNECTING);
+      showConnectionBanner(REALTIME_STATES.OFFLINE, 0);
       return;
     }
 
     if (open === elements.length) {
-      setConnection('open');
+      setConnection(REALTIME_STATES.OPEN);
       hideConnectionBanner();
       if (realtimeState.hadDrop) {
         realtimeState.hadDrop = false;
@@ -682,7 +707,7 @@
       return;
     }
 
-    var state = failed > 0 ? 'closed' : 'connecting';
+    var state = failed > 0 ? REALTIME_STATES.CLOSED : REALTIME_STATES.CONNECTING;
     setConnection(state);
     if (realtimeState.hadDrop || failed > 0 || attempt > 0) {
       showConnectionBanner(state, attempt);
@@ -737,7 +762,7 @@
     var channel = realtimeChannel(element);
     var connection = (detail && detail.connection) || {};
     var resumed = channel.wasDown;
-    channel.state = 'open';
+    channel.state = REALTIME_STATES.OPEN;
     channel.attempt = 0;
     channel.lastEventId = connection.lastEventId || channel.lastEventId || '';
     if (resumed) {
@@ -780,7 +805,7 @@
     }
     var detail = realtimeEventDetail(event);
     var channel = realtimeChannel(element);
-    channel.state = 'connecting';
+    channel.state = REALTIME_STATES.CONNECTING;
     channel.attempt = (detail.connection && detail.connection.attempt) || 0;
     if (channel.attempt > 0) {
       channel.wasDown = true;
@@ -803,7 +828,7 @@
     }
     var detail = realtimeEventDetail(event);
     var reason = detail.reason || '';
-    if (reason === 'removed' || reason === 'cleanup' || reason === 'cancelled' || reason === 'message' || !element.isConnected) {
+    if (reason === CLOSE_REASONS.REMOVED || reason === CLOSE_REASONS.CLEANUP || reason === CLOSE_REASONS.CANCELLED || reason === CLOSE_REASONS.MESSAGE || !element.isConnected) {
       delete element.__ydRealtime;
       refreshConnection();
       return;
@@ -811,7 +836,7 @@
     // The extension turns a server-side end into another attempt; keep the banner in its
     // reconnecting state rather than raising a permanent failure. | 扩展会把服务端结束流变成下一次
     // 尝试；横幅因此保持「重连中」，而不是报成永久失败。
-    markChannelDown(element, 'connecting', detail);
+    markChannelDown(element, REALTIME_STATES.CONNECTING, detail);
   }
 
   function onSSEError(event) {
@@ -830,7 +855,7 @@
       // 终止性状态码无限重试。
       detail.connection.config.reconnect = false;
     }
-    markChannelDown(element, terminal ? 'failed' : 'connecting', detail);
+    markChannelDown(element, terminal ? REALTIME_STATES.FAILED : REALTIME_STATES.CONNECTING, detail);
   }
 
   function onWSBefore(event) {
@@ -840,7 +865,7 @@
     }
     var detail = realtimeEventDetail(event);
     var channel = realtimeChannel(element);
-    channel.state = 'connecting';
+    channel.state = REALTIME_STATES.CONNECTING;
     channel.attempt = (detail.connection && detail.connection.attempt) || 0;
     if (channel.attempt > 0) {
       channel.wasDown = true;
@@ -863,7 +888,7 @@
     }
     var detail = realtimeEventDetail(event);
     var reason = detail.reason || '';
-    if (reason === 'removed' || reason === 'cancelled' || !element.isConnected) {
+    if (reason === CLOSE_REASONS.REMOVED || reason === CLOSE_REASONS.CANCELLED || !element.isConnected) {
       delete element.__ydRealtime;
       refreshConnection();
       return;
@@ -873,7 +898,7 @@
     if (!retryable && detail.connection && detail.connection.config) {
       detail.connection.config.reconnect = false;
     }
-    markChannelDown(element, retryable ? 'connecting' : 'failed', detail);
+    markChannelDown(element, retryable ? REALTIME_STATES.CONNECTING : REALTIME_STATES.FAILED, detail);
   }
 
   // onWebSocketError ignores a send failure while the socket is still open: htmx:ws:error also
@@ -888,7 +913,7 @@
     }
     var element = realtimeEventTarget(event);
     if (element) {
-      markChannelDown(element, 'connecting', detail);
+      markChannelDown(element, REALTIME_STATES.CONNECTING, detail);
     }
   }
 
@@ -902,12 +927,12 @@
     var failed = false;
 
     all('[hx-sse\\:connect]').forEach(function (element) {
-      if (element.__ydRealtime && element.__ydRealtime.state === 'failed') {
+      if (element.__ydRealtime && element.__ydRealtime.state === REALTIME_STATES.FAILED) {
         failed = true;
       }
     });
     all('[hx-ws\\:connect]').forEach(function (element) {
-      if (element.__ydRealtime && element.__ydRealtime.state === 'failed') {
+      if (element.__ydRealtime && element.__ydRealtime.state === REALTIME_STATES.FAILED) {
         failed = true;
       }
     });
@@ -961,7 +986,7 @@
     }
     var down = false;
     elements.forEach(function (element) {
-      if (realtimeChannel(element).state !== 'open') {
+      if (realtimeChannel(element).state !== REALTIME_STATES.OPEN) {
         down = true;
       }
     });
@@ -1429,8 +1454,8 @@
     try {
       var query = mq('(prefers-color-scheme: dark)');
       var listener = function () {
-        if (currentTheme() === 'system') {
-          applyTheme('system', false);
+        if (currentTheme() === THEMES.SYSTEM) {
+          applyTheme(THEMES.SYSTEM, false);
         }
       };
       if (typeof query.addEventListener === 'function') {
@@ -1469,7 +1494,7 @@
       }
     }
 
-    applyTheme(storedTheme() || documentTheme() || 'system', false);
+    applyTheme(storedTheme() || documentTheme() || THEMES.SYSTEM, false);
     applySidebar(read(SIDEBAR_KEY) === 'true');
     applyMobileSidebar(false);
     syncActiveNav();

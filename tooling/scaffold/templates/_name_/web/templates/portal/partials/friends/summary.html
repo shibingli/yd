@@ -45,7 +45,7 @@
   <section class="yd-card yd-section" aria-labelledby="yd-friends-list-title">
     <header class="yd-section__header">
       <h2 class="yd-section__title" id="yd-friends-list-title">{{ tr "friend.friends" }}</h2>
-      <span class="yd-badge yd-badge--muted">{{ len .Friends }}</span>
+      <span class="yd-badge yd-badge--muted">{{ .FriendTotal }}</span>
     </header>
     {{- if .Friends }}
     <ul class="yd-friend-list">
@@ -87,7 +87,14 @@
     {{- else }}
     <p class="yd-hint">{{ tr "friend.no_friends" }}</p>
     {{- end }}
-  </section>
+    {{- if or .FriendPrevHref .FriendNextHref }}
+  <div hx-boost="true" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true">
+    {{template "components.navigation.pagination" (dict
+      "PrevHref" .FriendPrevHref "NextHref" .FriendNextHref "ShowLabels" true
+      "Label" (tr "friend.friends") "LabelKey" "friend.friends")}}
+  </div>
+  {{- end }}
+</section>
 
   <div class="yd-friends__columns">
     <section class="yd-card yd-section" aria-labelledby="yd-friends-outgoing">

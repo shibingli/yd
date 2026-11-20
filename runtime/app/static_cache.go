@@ -6,6 +6,7 @@
 package app
 
 import (
+	"github.com/spf13/afero"
 	"strings"
 
 	"github.com/shibingli/yd/runtime/metricsx"
@@ -32,7 +33,7 @@ const (
 // /static/... reference keeps revalidating, so replacing a file without changing its URL can never
 // be masked by a year-long cache. | 只有 asset 助手生成的带版本地址获得不可变策略；
 // 手写的 /static/... 引用继续每次校验，因此替换同名文件绝不会被一年的缓存掩盖。
-func staticCacheMiddleware(production bool) router.Middleware {
+func staticCacheMiddleware(production bool, fsys afero.Fs) router.Middleware {
 	return func(c *router.Ctx) {
 		if strings.HasPrefix(c.Path(), staticURLPrefix+"/") {
 			// The compression middleware writes Vary only when it actually compresses; a static asset declares it
@@ -43,7 +44,7 @@ func staticCacheMiddleware(production bool) router.Middleware {
 			// 的表示混为一谈。静态文件不随语言或 Cookie 变化，保留 i18n 中间件写入的这些维度会让 CDN 完全无法缓存，
 			// 因此这里覆盖而不是追加。
 			c.Writer.Header().Set("Vary", "Accept-Encoding")
-			if production && isContentHash(c.Query("v")) {
+			if production && isContentHash(c.Query("v")) && staticFileExists(fsys, c.Path()) {
 				c.SetHeader("Cache-Control", staticCacheImmutable)
 			} else {
 				c.SetHeader("Cache-Control", staticCacheRevalidate)
@@ -59,7 +60,30 @@ func staticCacheMiddleware(production bool) router.Middleware {
 // （生成项目正是如此）与 app.Default 得到同一套策略。
 func (a *App) StaticCache() router.Middleware {
 	production := a != nil && a.cfg != nil && !isDevelopment(a.cfg)
-	return staticCacheMiddleware(production)
+	return staticCacheMiddleware(production, a.staticFS)
+}
+
+// staticFileExists reports whether a /static request names a real regular file. A hand-written
+// ?v=deadbeef on a missing path must not earn a year-long immutable cache, and a 404 must never be
+// cached as immutable. | staticFileExists 报告 /static 请求是否指向真实普通文件。缺失路径上的
+// 手写 ?v=deadbeef 不得获得一年不可变缓存，404 也绝不能以 immutable 缓存。
+func staticFileExists(fsys afero.Fs, path string) bool {
+	if fsys == nil {
+		return false
+	}
+	rel := strings.TrimPrefix(path, staticURLPrefix+"/")
+	if rel == path || rel == "" {
+		return false
+	}
+	// The shared script bundle is assembled in memory and served by an exact route, so it has no
+	// file in the static tree; its URL still carries the content hash the asset helper computed. |
+	// 共享脚本 bundle 在内存中组装并由精确路由提供，静态树里没有对应文件；它的地址仍带有资产助手
+	// 计算出的内容哈希。
+	if rel == "js/yd-bundle.js" {
+		return true
+	}
+	info, err := fsys.Stat(rel)
+	return err == nil && info != nil && !info.IsDir()
 }
 
 // isContentHash reports the asset helper's version form: eight lower-case hex characters (four SHA-256

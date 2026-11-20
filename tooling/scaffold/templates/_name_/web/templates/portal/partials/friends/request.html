@@ -10,14 +10,14 @@
   actor itself, a pending request or a blocked pair show the relation and a close action instead, so a direct link or a
   stale search row can never reach the form either.
 
-  数据契约 | Data contract: .Target .Name .Initial .CanRequest .Relation .RelationLabel。
+  数据契约 | Data contract: .Target .Name .Initial .CanRequest .Relation .RelationLabel .RelationSelf .RelationFriend。
 */}}
 {{- define "portal/partials/friends/request" -}}
 <div class="yd-drawer__head">
   <h2 class="yd-section__title">{{ if .CanRequest }}{{ tr "friend.request_title" }}{{ else }}{{ tr "friend.request_unavailable_title" }}{{ end }}</h2>
   <p class="yd-section__hint">
     {{- if .CanRequest }}{{ tr "friend.request_hint" }}
-    {{- else if eq .Relation "self" }}{{ tr "friend.cannot_add_self" }}
+    {{- else if eq .Relation .RelationSelf }}{{ tr "friend.cannot_add_self" }}
     {{- else }}{{ tr "friend.request_unavailable" }}
     {{- end }}
   </p>

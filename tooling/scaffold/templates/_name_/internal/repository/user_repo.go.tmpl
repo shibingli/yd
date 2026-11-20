@@ -177,6 +177,20 @@ func (r *UserRepo) SetDefaultTenant(ctx context.Context, userID, tenantID string
 	return r.store.Auth().SetDefaultTenant(ctx, userID, tenantID)
 }
 
+// TenantReplacer returns the atomic membership replacement capability of the underlying store, or nil when the
+// implementation only offers the sequential Add/Remove/SetDefault trio. | TenantReplacer 返回底层存储的原子成员关系
+// 替换能力；实现只提供 Add/Remove/SetDefault 顺序接口时返回 nil。
+//
+// The business layer prefers the atomic capability so a multi-step membership adjustment cannot leave a partially
+// changed set behind. | 业务层优先使用原子能力，使多步成员关系调整不会留下改到一半的集合。
+func (r *UserRepo) TenantReplacer() auth.TenantReplacer {
+	replacer, ok := r.store.Raw().(auth.TenantReplacer)
+	if !ok {
+		return nil
+	}
+	return replacer
+}
+
 // SwitchTenant 校验成员关系并返回用户在目标租户中的视图；非成员与不存在的租户不可区分。
 // SwitchTenant verifies the membership and returns the user acting in the target tenant; a non-member is indistinguishable from a missing tenant.
 func (r *UserRepo) SwitchTenant(ctx context.Context, userID, tenantID string) (model.User, error) {

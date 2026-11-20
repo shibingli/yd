@@ -131,13 +131,20 @@ func (s *Service) Get(ctx context.Context, actor Actor, id string) (Attachment, 
 	return attachment, nil
 }
 
-// Read returns the bytes of one attachment. The caller has already authorized visibility. | Read 返回
-// 附件字节；调用方必须已经完成可见性鉴权。
+// Read returns the bytes of one attachment. The caller has already authorized visibility, but the
+// state is re-read by tenant and id before the bytes are touched: a stale record that was tombstoned
+// after the caller's lookup must not keep serving its bytes. | Read 返回附件字节；调用方必须已经完成
+// 可见性鉴权，但在读取字节之前会按租户与 ID 重读状态：调用方查到记录之后才被墓碑化的陈旧记录不得继续
+// 提供字节。
 func (s *Service) Read(ctx context.Context, attachment Attachment) ([]byte, error) {
-	if attachment.Status == StatusDeleted || strings.TrimSpace(attachment.StoredKey) == "" {
+	current, err := s.store.Get(ctx, attachment.TenantID, attachment.ID)
+	if err != nil {
+		return nil, err
+	}
+	if current.Status == StatusDeleted || strings.TrimSpace(current.StoredKey) == "" {
 		return nil, ErrNotFound
 	}
-	data, err := s.blobs.Get(ctx, attachment.StoredKey)
+	data, err := s.blobs.Get(ctx, current.StoredKey)
 	if err != nil {
 		return nil, errs.Wrap(err, ErrNotFound)
 	}
@@ -474,9 +481,9 @@ func (s *Service) deleteBlob(ctx context.Context, key string) {
 // ContentDisposition builds the download header; images may be inline for preview. | ContentDisposition
 // 构造下载响应头；图片可以内联用于预览。
 func ContentDisposition(attachment Attachment, inline bool) string {
-	disposition := "attachment"
+	disposition := DispositionAttachment
 	if inline && IsImage(attachment) {
-		disposition = "inline"
+		disposition = DispositionInline
 	}
 	value := mime.FormatMediaType(disposition, map[string]string{"filename": safeDownloadName(attachment.OriginalName)})
 	if value == "" {

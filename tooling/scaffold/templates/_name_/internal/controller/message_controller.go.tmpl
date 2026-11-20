@@ -111,6 +111,25 @@ func (c catalogView) TagFilterOptions(selected string) []map[string]any {
 	return out
 }
 
+// messageFolderOptions builds the folder filter choices. The management list omits the unread folder,
+// which it does not offer; the portal keeps it. | messageFolderOptions 构建文件夹筛选项。管理列表不提供
+// 未读文件夹，因此 admin 为真时省略；门户保留它。
+func messageFolderOptions(selected string, admin bool) []map[string]any {
+	options := []map[string]any{
+		{"Value": messaging.FolderAll, "Key": "message.folder.all", "Selected": selected == messaging.FolderAll},
+	}
+	if !admin {
+		options = append(options, map[string]any{
+			"Value": messaging.FolderUnread, "Key": "message.folder.unread", "Selected": selected == messaging.FolderUnread,
+		})
+	}
+	return append(options,
+		map[string]any{"Value": messaging.FolderSent, "Key": "message.folder.sent", "Selected": selected == messaging.FolderSent},
+		map[string]any{"Value": messaging.FolderSystem, "Key": "message.folder.system", "Selected": selected == messaging.FolderSystem},
+		map[string]any{"Value": messaging.FolderPinned, "Key": "message.folder.pinned", "Selected": selected == messaging.FolderPinned},
+	)
+}
+
 // messagePage is the complete data of one message-centre render. | messagePage 是一次消息中心渲染的完整数据。
 type messagePage struct {
 	// Filters is the filter bar state. | Filters 是过滤栏状态。
@@ -127,6 +146,14 @@ type messagePage struct {
 	Results []messageView
 	// Total is the unpaged search result count. | Total 是不分页的检索结果数。
 	Total int
+	// SearchPage is the current 1-based search page. | SearchPage 是当前检索页（从 1 开始）。
+	SearchPage int
+	// SearchPageCount is the number of search pages. | SearchPageCount 是检索结果页数。
+	SearchPageCount int
+	// SearchPrevHref and SearchNextHref are the paging links preserving every filter. |
+	// SearchPrevHref 与 SearchNextHref 是保留全部筛选条件的分页链接。
+	SearchPrevHref string
+	SearchNextHref string
 	// SearchMode reports whether the results panel should be shown. | SearchMode 报告是否展示检索结果面板。
 	SearchMode bool
 	// Active is the open conversation. | Active 是当前打开的会话。
@@ -149,12 +176,19 @@ type messagePage struct {
 func (p messagePage) data() map[string]any {
 	return map[string]any{
 		"Filters":            p.Filters,
+		"Folders":            messageFolderOptions(p.Filters.Folder, false),
+		"TypeNormal":         messaging.TypeNormal,
+		"TypeAnnouncement":   messaging.TypeAnnouncement,
 		"Conversations":      p.Conversations,
 		"Pinned":             p.Pinned,
 		"Catalog":            p.Catalog,
 		"Friends":            p.Friends,
 		"Results":            p.Results,
 		"Total":              p.Total,
+		"SearchPage":         p.SearchPage,
+		"SearchPageCount":    p.SearchPageCount,
+		"SearchPrevHref":     p.SearchPrevHref,
+		"SearchNextHref":     p.SearchNextHref,
 		"SearchMode":         p.SearchMode,
 		"ActiveConversation": p.Active,
 		"Thread":             p.Thread,
@@ -202,19 +236,14 @@ func (c *Controller) Messages(ctx *router.Ctx) {
 	// The search form swaps only #yd-msg-main: the result fragment lands in the main pane and the rail and the
 	// other collections take no part in this render. When the query is cleared, HX-Retarget falls back to the
 	// whole workspace so the thread or welcome panel comes back; without it the result fragment would stay put.
-	if htmx.IsRequest(ctx.Request) && strings.TrimSpace(htmx.Target(ctx.Request)) == messageSearchTarget {
+	if htmx.IsRequest(ctx.Request) && htmxTargetID(ctx) == messageSearchTarget {
 		if filters.Active {
 			page, err := c.loadSearchPage(ctx, filters)
 			if err != nil {
 				c.failService(ctx, err)
 				return
 			}
-			c.render(ctx, http.StatusOK, TplMessageSearch, c.pageView(ctx, "检索结果 | Search results", map[string]any{
-				"Filters":    page.Filters,
-				"Results":    page.Results,
-				"Total":      page.Total,
-				"SearchMode": true,
-			}))
+			c.render(ctx, http.StatusOK, TplMessageSearch, c.pageView(ctx, "检索结果 | Search results", page.data()))
 			return
 		}
 		ctx.SetHeader("HX-Retarget", "#yd-workspace")
@@ -479,7 +508,8 @@ func (c *Controller) EditMessageDrawer(ctx *router.Ctx) {
 		return
 	}
 	c.render(ctx, http.StatusOK, TplMessageCompose, c.pageView(ctx, "编辑消息 | Edit message", map[string]any{
-		"Mode":        "edit",
+		"Mode":        formModeEdit,
+		"IsEdit":        true,
 		"Catalog":     catalog,
 		"Message":     view,
 		"DefaultType": view.TypeKey,
@@ -988,7 +1018,44 @@ func (c *Controller) loadSearchPage(ctx *router.Ctx, filters messageFilters) (me
 	}
 	page.Results = c.messageViewsOf(actor, result.Messages, c.lang(ctx), time.Now().UTC())
 	page.Total = result.Total
+	pageSize := c.messages.Options().PageSize
+	if pageSize <= 0 {
+		pageSize = historyDefaultLimit
+	}
+	page.SearchPage = filters.Page
+	page.SearchPageCount = (result.Total + pageSize - 1) / pageSize
+	if page.SearchPageCount > 1 {
+		if filters.Page > 1 {
+			page.SearchPrevHref = messageSearchHref(filters, filters.Page-1)
+		}
+		if filters.Page < page.SearchPageCount {
+			page.SearchNextHref = messageSearchHref(filters, filters.Page+1)
+		}
+	}
 	return page, nil
+}
+
+// messageSearchHref builds a search URL that preserves every active filter. | messageSearchHref
+// 构建保留全部生效筛选条件的检索 URL。
+func messageSearchHref(filters messageFilters, page int) string {
+	query := url.Values{}
+	if filters.Query != "" {
+		query.Set("q", filters.Query)
+	}
+	if filters.TypeKey != "" {
+		query.Set(FieldTypeKey, filters.TypeKey)
+	}
+	if filters.SenderID != "" {
+		query.Set(FieldSender, filters.SenderID)
+	}
+	if filters.TagID != "" {
+		query.Set(FieldTag, filters.TagID)
+	}
+	if filters.Folder != "" && filters.Folder != messaging.FolderAll {
+		query.Set(FieldFolder, filters.Folder)
+	}
+	query.Set("page", strconv.Itoa(page))
+	return "/messages/list?" + query.Encode()
 }
 
 // loadMessagePage assembles the conversation list, catalogue, pinned strip and optional thread/results. |
@@ -1062,6 +1129,50 @@ func (c *Controller) loadMessagePage(ctx *router.Ctx, activeID string, filters m
 	return page, nil
 }
 
+// History page size bounds. The initial thread shows the newest 50 messages; "load earlier" grows
+// the window by 100 up to 1000, so a very long conversation stays bounded per request. |
+// 历史消息页长边界。初始线程显示最新 50 条；「加载更早」每次增加 100，最多 1000，使超长会话的
+// 单次请求仍然有界。
+const (
+	historyDefaultLimit = 50
+	historyStep         = 100
+	historyMaxLimit     = 1000
+)
+
+// historyLimit parses the limit query and clamps it into the supported window. | historyLimit 解析
+// limit 查询并收敛到支持的窗口。
+func historyLimit(raw string) int {
+	limit, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || limit < historyDefaultLimit {
+		return historyDefaultLimit
+	}
+	if limit > historyMaxLimit {
+		return historyMaxLimit
+	}
+	return limit
+}
+
+// nextHistoryLimit grows the window by one step without exceeding the cap. | nextHistoryLimit 按步长
+// 扩大窗口，且不超过上限。
+func nextHistoryLimit(current int) int {
+	if current < historyDefaultLimit {
+		current = historyDefaultLimit
+	}
+	next := current + historyStep
+	if next > historyMaxLimit {
+		if current < historyMaxLimit {
+			// The last step may overshoot; request the exact cap once. | 最后一步可能越过上限，
+			// 先请求精确的上限值。
+			return historyMaxLimit
+		}
+		// At the cap there is no larger window to request; returning 0 lets the template show a
+		// bounded-history hint instead of a dead button. | 到达上限后没有更大的窗口可请求；返回 0
+		// 让模板显示「仅显示最近 N 条」提示，而不是一个点了没反应的按钮。
+		return 0
+	}
+	return next
+}
+
 // threadData builds the fragment data for a live thread refresh. | threadData 构建实时线程刷新的片段数据。
 func (c *Controller) threadData(ctx *router.Ctx, conversationID string) (map[string]any, error) {
 	actor := c.messageActor(ctx)
@@ -1069,6 +1180,14 @@ func (c *Controller) threadData(ctx *router.Ctx, conversationID string) (map[str
 	conv, messages, err := c.messages.Conversation(ctx.Request.Context(), actor, conversationID)
 	if err != nil {
 		return nil, err
+	}
+	limit := historyLimit(ctx.Query("limit"))
+	hasEarlier := conv.HasEarlier
+	if limit > historyDefaultLimit {
+		messages, hasEarlier, err = c.messages.ConversationMessagesLimit(ctx.Request.Context(), actor, conversationID, limit)
+		if err != nil {
+			return nil, err
+		}
 	}
 	views := c.conversationViewsOf(actor, []messaging.ConversationView{conv}, lang, conversationID)
 	var active *conversationView
@@ -1082,7 +1201,12 @@ func (c *Controller) threadData(ctx *router.Ctx, conversationID string) (map[str
 	data := c.pageView(ctx, "会话 | Conversation", map[string]any{
 		"ActiveConversation": active,
 		"Thread":             c.messageViewsOf(actor, messages, lang, time.Now().UTC()),
+		"ConversationID":     conversationID,
+		"HasEarlier":         hasEarlier,
+		"NextLimit":          nextHistoryLimit(limit),
 		"Catalog":            catalog,
+		"TypeNormal":         messaging.TypeNormal,
+		"TypeAnnouncement":   messaging.TypeAnnouncement,
 		"CanSend":            authz.Can(ctx.Request.Context(), authz.PermMessageSend),
 		"CanManage":          authz.Can(ctx.Request.Context(), authz.PermMessageManage),
 		"CanSystem":          authz.Can(ctx.Request.Context(), authz.PermMessageSystem),
@@ -1098,12 +1222,16 @@ func (c *Controller) threadData(ctx *router.Ctx, conversationID string) (map[str
 // assembly or view's shell queries.
 func (c *Controller) historyData(ctx *router.Ctx, conversationID string) (map[string]any, error) {
 	actor := c.messageActor(ctx)
-	messages, err := c.messages.ConversationMessages(ctx.Request.Context(), actor, conversationID)
+	limit := historyLimit(ctx.Query("limit"))
+	messages, hasEarlier, err := c.messages.ConversationMessagesLimit(ctx.Request.Context(), actor, conversationID, limit)
 	if err != nil {
 		return nil, err
 	}
 	return c.pageView(ctx, "会话 | Conversation", map[string]any{
-		"Thread": c.messageViewsOf(actor, messages, c.lang(ctx), time.Now().UTC()),
+		"Thread":         c.messageViewsOf(actor, messages, c.lang(ctx), time.Now().UTC()),
+		"ConversationID": conversationID,
+		"HasEarlier":     hasEarlier,
+		"NextLimit":      nextHistoryLimit(limit),
 	}), nil
 }
 
@@ -1182,3 +1310,70 @@ func parsePinTime(value string) (*time.Time, error) {
 	}
 	return nil, errs.Detail(messaging.ErrPinWindowInvalid, "value=%[1]q | 取值=%[1]q", value)
 }
+
+// PortalRevokeSystemMessage revokes an announcement from the portal message page. It delegates to the
+// shared moderation handler; the wrapper exists so the portal route carries its own OpenAPI operation. |
+// PortalRevokeSystemMessage 从门户消息页撤销公告。它委托给共享治理处理器；包装方法的存在是为了让门户
+// 路由拥有自己的 OpenAPI 操作。
+//
+// @Summary Revoke announcement from the portal | 门户撤销系统公告
+// @Description Recalls a system message and re-renders the portal conversation with an audit-preserving tombstone. |
+// 撤回系统消息，并在保留审计墓碑的前提下重渲染门户会话。
+// @Tags messages
+// @Accept html
+// @Produce html
+// @Param id path string true "message id | 消息 ID"
+// @Param reason formData string false "revoke reason | 撤销原因"
+// @Success 200 {object} string "refreshed conversation page | 刷新后的会话页"
+// @Failure 403 {object} string "missing message:system | 缺少 message:system"
+// @Security BearerAuth
+// @Router /messages/{id}/revoke [post]
+func (c *Controller) PortalRevokeSystemMessage(ctx *router.Ctx) { c.RevokeSystemMessage(ctx) }
+
+// PortalPinMessageDrawer renders the pin drawer from the portal message page. | PortalPinMessageDrawer
+// 从门户消息页渲染置顶抽屉。
+//
+// @Summary Portal pin drawer | 门户置顶抽屉
+// @Description Renders the pin window inputs for one announcement from the portal. | 从门户渲染公告置顶窗口输入。
+// @Tags messages
+// @Accept html
+// @Produce html
+// @Param id path string true "message id | 消息 ID"
+// @Success 200 {object} string "drawer fragment | 抽屉片段"
+// @Failure 403 {object} string "missing message:manage | 缺少 message:manage"
+// @Security BearerAuth
+// @Router /messages/{id}/pin [get]
+func (c *Controller) PortalPinMessageDrawer(ctx *router.Ctx) { c.PinMessageDrawer(ctx) }
+
+// PortalPinMessage pins an announcement from the portal message page. | PortalPinMessage 从门户消息页
+// 置顶公告。
+//
+// @Summary Pin from the portal | 门户置顶公告
+// @Description Pins a system message and re-renders the portal conversation. | 置顶系统消息并重渲染门户会话。
+// @Tags messages
+// @Accept html
+// @Produce html
+// @Param id path string true "message id | 消息 ID"
+// @Param pin_start formData string false "start time | 起点"
+// @Param pin_end formData string false "end time | 终点"
+// @Success 200 {object} string "refreshed conversation page | 刷新后的会话页"
+// @Failure 403 {object} string "missing message:manage | 缺少 message:manage"
+// @Failure 422 {object} string "invalid pin window | 非法置顶窗口"
+// @Security BearerAuth
+// @Router /messages/{id}/pin [post]
+func (c *Controller) PortalPinMessage(ctx *router.Ctx) { c.PinMessage(ctx) }
+
+// PortalUnpinMessage clears a pin from the portal message page. | PortalUnpinMessage 从门户消息页取消置顶。
+//
+// @Summary Unpin from the portal | 门户取消置顶
+// @Description Clears the pin window of a system message and re-renders the portal conversation. |
+// 清除系统消息置顶窗口并重渲染门户会话。
+// @Tags messages
+// @Accept html
+// @Produce html
+// @Param id path string true "message id | 消息 ID"
+// @Success 200 {object} string "refreshed conversation page | 刷新后的会话页"
+// @Failure 403 {object} string "missing message:manage | 缺少 message:manage"
+// @Security BearerAuth
+// @Router /messages/{id}/unpin [post]
+func (c *Controller) PortalUnpinMessage(ctx *router.Ctx) { c.UnpinMessage(ctx) }

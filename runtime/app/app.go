@@ -92,6 +92,10 @@ var (
 	ErrRuntimeGC = errs.New("app: runtime gc scheduler failed | app：运行时 GC 调度器装配失败")
 	// ErrShutdown indicates that a shutdown hook failed. | ErrShutdown 表示关闭钩子执行失败。
 	ErrShutdown = errs.New("app: shutdown hook failed | app：关闭钩子执行失败")
+	// ErrHookPanic indicates that a shutdown hook panicked; the panic is contained and reported
+	// through ErrShutdown instead of aborting the remaining hooks. | ErrHookPanic 表示关闭钩子发生
+	// panic；panic 会被收敛并经由 ErrShutdown 上报，而不是中止后续钩子。
+	ErrHookPanic = errs.New("app: shutdown hook panicked | app：关闭钩子发生 panic")
 )
 
 // Conventions and defaults of the facade. | 门面的约定与默认值。
@@ -331,6 +335,12 @@ func New(opts ...Option) (*App, error) {
 	for _, fn := range a.serverMutators {
 		fn(&so)
 	}
+	// App.Run owns the shutdown sequence: it creates one bounded context and calls a.Shutdown,
+	// which drains HTTP and runs the application hooks under that same deadline. Letting
+	// server.Run shut down first would spend the configured grace period twice. |
+	// App.Run 拥有关闭序列：它创建一个有界上下文并调用 a.Shutdown，在同一截止时间下排空 HTTP 并执行
+	// 应用钩子。若先让 server.Run 自行关闭，配置的宽限期会被消耗两次。
+	so.ShutdownByCaller = true
 	so.Handler = a.router
 	so.Logger = a.log
 	a.server = server.New(so)

@@ -5,9 +5,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shibingli/ydx/guomi"
 	"github.com/shibingli/ydx/base64"
 	"github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/guomi"
 )
 
 // LoginResult is the outcome of a successful sign-in. | LoginResult 是一次成功登录的结果。
@@ -135,13 +135,17 @@ func isBase64Alphabet(b []byte) bool {
 	return true
 }
 
+// EncryptSchemeSM2 is the value of data-yd-encrypt and X-YD-Encrypted that marks an SM2 payload.
+// | EncryptSchemeSM2 是 data-yd-encrypt 与 X-YD-Encrypted 标记 SM2 载荷的取值。
+const EncryptSchemeSM2 = "sm2"
+
 // encryptedMarker documents the header value this package expects from the
 // front-end encryptor. | encryptedMarker 记录本包期望前端加密器提交的请求头取值。
 //
 // The scheme is transport-level and enforced by the caller, exactly as the
 // scaffold's login controller does with strings.EqualFold. | 该约定属于传输层，由调用方实施，
 // 与脚手架登录控制器中的 strings.EqualFold 判法一致。
-const encryptedMarker = "sm2"
+const encryptedMarker = EncryptSchemeSM2
 
 // LoginEncryptedHeader is the request header a browser sets when the payload was
 // encrypted by the front-end sandbox. | LoginEncryptedHeader 是浏览器在前端沙箱加密载荷后设置的请求头。

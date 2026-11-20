@@ -4,12 +4,12 @@
 */}}
 {{- define "mgr/partials/dictionaries/type_form" -}}
 <div class="yd-drawer__head">
-  <h2 class="yd-section__title">{{ if eq .Mode "edit" }}{{ tr "dictionary.type.edit" }}{{ else }}{{ tr "dictionary.type.new" }}{{ end }}</h2>
+  <h2 class="yd-section__title">{{ if .IsEdit }}{{ tr "dictionary.type.edit" }}{{ else }}{{ tr "dictionary.type.new" }}{{ end }}</h2>
   <p class="yd-section__hint">{{ tr "dictionary.type.hint" }}</p>
 </div>
 <form class="yd-form" method="post"
-      action="{{ if eq .Mode "edit" }}{{ .BasePath }}/{{ .Item.ID }}{{ else }}{{ .BasePath }}{{ end }}"
-      hx-post="{{ if eq .Mode "edit" }}{{ .BasePath }}/{{ .Item.ID }}{{ else }}{{ .BasePath }}{{ end }}"
+      action="{{ if .IsEdit }}{{ .BasePath }}/{{ .Item.ID }}{{ else }}{{ .BasePath }}{{ end }}"
+      hx-post="{{ if .IsEdit }}{{ .BasePath }}/{{ .Item.ID }}{{ else }}{{ .BasePath }}{{ end }}"
       hx-target="#yd-workspace" hx-swap="innerMorph"
       hx-status:409="target:#yd-drawer-errors swap:innerHTML"
       hx-status:422="target:#yd-drawer-errors swap:innerHTML"
@@ -18,7 +18,7 @@
     "ID" "yd-dictionary-code" "Name" "code" "Type" "text" "Value" .Item.Code
     "Label" (tr "dictionary.type.code") "LabelKey" "dictionary.type.code"
     "Hint" (tr "dictionary.type.code_hint") "HintKey" "dictionary.type.code_hint"
-    "MaxLength" 64 "Required" true "Readonly" (eq .Mode "edit"))}}
+    "MaxLength" 64 "Required" true "Readonly" (.IsEdit))}}
   {{template "components.form.field" (dict
     "ID" "yd-dictionary-name" "Name" "name" "Type" "text" "Value" .Item.Name
     "Label" (tr "field.name") "LabelKey" "field.name"
@@ -39,8 +39,8 @@
     "ID" "yd-dictionary-status" "Name" "status"
     "Label" (tr "field.status") "LabelKey" "field.status"
     "Options" (list
-      (dict "Value" "enabled" "Label" (tr "status.active") "Key" "status.active" "Selected" (eq .Item.Status "enabled"))
-      (dict "Value" "disabled" "Label" (tr "status.disabled") "Key" "status.disabled" "Selected" (eq .Item.Status "disabled"))))}}
+      (dict "Value" .StatusEnabled "Label" (tr "status.active") "Key" "status.active" "Selected" (eq .Item.Status .StatusEnabled))
+      (dict "Value" .StatusDisabled "Label" (tr "status.disabled") "Key" "status.disabled" "Selected" (eq .Item.Status .StatusDisabled))))}}
   {{template "components.form.actions" (dict
     "SubmitLabel" (tr "ui.save") "SubmitKey" "ui.save"
     "CancelLabel" (tr "ui.cancel") "CancelKey" "ui.cancel")}}

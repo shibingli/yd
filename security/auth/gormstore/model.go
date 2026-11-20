@@ -53,7 +53,7 @@ type tenantRow struct {
 	// Name is the display name. | Name 是展示名称。
 	Name string `gorm:"column:name;type:varchar(128);not null"`
 	// Status is "active" or "disabled". | Status 取 "active" 或 "disabled"。
-	Status string `gorm:"column:status;type:varchar(32);not null"`
+	Status auth.Status `gorm:"column:status;type:varchar(32);not null"`
 }
 
 // TableName pins the table name, so renaming the type can never move data. | TableName 固定表名，类型改名永远不会挪动数据。
@@ -93,7 +93,7 @@ type userRow struct {
 	// PasswordHash is the guomi password hash; no plaintext is ever stored. | PasswordHash 是 guomi 口令散列；明文从不落库。
 	PasswordHash string `gorm:"column:password_hash;type:varchar(255)"`
 	// Status is "active" or "disabled". | Status 取 "active" 或 "disabled"。
-	Status string `gorm:"column:status;type:varchar(32);not null"`
+	Status auth.Status `gorm:"column:status;type:varchar(32);not null"`
 	// EncryptedSecKey is the SM4-GCM sealed per-user JWT key; size keeps MySQL on varbinary. | EncryptedSecKey 是 SM4-GCM 封装的每用户 JWT 密钥；size 让 MySQL 落在 varbinary 上。
 	EncryptedSecKey []byte `gorm:"column:encrypted_sec_key;size:4096"`
 }
@@ -179,7 +179,7 @@ func tenantFromRow(row *tenantRow) *auth.Tenant {
 		ID:        row.ID,
 		Slug:      row.Slug,
 		Name:      row.Name,
-		Status:    auth.Status(row.Status),
+		Status:    row.Status,
 		CreatedAt: row.CreatedAt,
 	}
 }
@@ -191,7 +191,7 @@ func tenantToRow(t *auth.Tenant) tenantRow {
 		Slug:      t.Slug,
 		SlugKey:   keyOf(t.Slug),
 		Name:      t.Name,
-		Status:    string(t.Status),
+		Status:    t.Status,
 		CreatedAt: t.CreatedAt,
 	}
 }
@@ -214,7 +214,7 @@ func userFromRow(row *userRow) (*auth.User, error) {
 		Email:           row.Email,
 		DisplayName:     row.DisplayName,
 		PasswordHash:    row.PasswordHash,
-		Status:          auth.Status(row.Status),
+		Status:          row.Status,
 		EncryptedSecKey: append([]byte(nil), row.EncryptedSecKey...),
 		CreatedAt:       row.CreatedAt,
 		UpdatedAt:       row.UpdatedAt,
@@ -244,7 +244,7 @@ func userToRow(u *auth.User) (userRow, error) {
 		Email:           u.Email,
 		DisplayName:     u.DisplayName,
 		PasswordHash:    u.PasswordHash,
-		Status:          string(u.Status),
+		Status:          u.Status,
 		EncryptedSecKey: append([]byte(nil), u.EncryptedSecKey...),
 		CreatedAt:       u.CreatedAt,
 		UpdatedAt:       u.UpdatedAt,

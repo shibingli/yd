@@ -555,6 +555,9 @@ func (s *Server) Run(ctx context.Context) error {
 	case <-sigCtx.Done():
 	case <-s.done:
 	case err := <-s.serveErr:
+		if s.opts.ShutdownByCaller {
+			return err
+		}
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), s.opts.ShutdownTimeout)
 		defer cancel()
 		return errors.Join(err, s.Shutdown(shutdownCtx))
@@ -565,6 +568,13 @@ func (s *Server) Run(ctx context.Context) error {
 	// 卡在处理器或钩子里，第二次 SIGINT/SIGTERM 必须能够终止进程。
 	stop()
 
+	if s.opts.ShutdownByCaller {
+		// The caller owns the single grace period; returning here lets it drain HTTP and run
+		// application hooks under one context instead of starting a second full timeout. |
+		// 调用方拥有唯一的宽限期；这里直接返回，让它在一个上下文里完成 HTTP 排空与应用钩子，
+		// 而不是再启动一个完整的超时。
+		return s.fatalError()
+	}
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), s.opts.ShutdownTimeout)
 	defer cancel()
 	// The select above may have taken the done arm; read the stored fatal error so a listener

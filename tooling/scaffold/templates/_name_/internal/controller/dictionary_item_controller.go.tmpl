@@ -128,13 +128,16 @@ func (c *Controller) newDictionaryItemDrawer(ctx *router.Ctx, system bool) {
 		title = "新建系统字典项 | New system dictionary item"
 	}
 	c.render(ctx, http.StatusOK, TplDictionaryItemDrawer, c.pageView(ctx, title, map[string]any{
-		"Mode":      "create",
-		"BasePath":  basePath,
-		"Scope":     string(scope),
-		"TypeID":    current.ID,
-		"TypeCode":  current.Code,
-		"TypeLabel": dictionaryTypeViews([]dictionary.Type{current}, c.lang(ctx))[0].Label,
-		"Item":      dictionaryItemView{Status: string(dictionary.StatusEnabled)},
+		"Mode":           formModeCreate,
+		"IsEdit":         false,
+		"BasePath":       basePath,
+		"Scope":          string(scope),
+		"TypeID":         current.ID,
+		"TypeCode":       current.Code,
+		"TypeLabel":      dictionaryTypeViews([]dictionary.Type{current}, c.lang(ctx))[0].Label,
+		"Item":           dictionaryItemView{Status: string(dictionary.StatusEnabled)},
+		"StatusEnabled":  string(dictionary.StatusEnabled),
+		"StatusDisabled": string(dictionary.StatusDisabled),
 	}))
 }
 
@@ -163,13 +166,16 @@ func (c *Controller) editDictionaryItemDrawer(ctx *router.Ctx, system bool) {
 		title = "编辑系统字典项 | Edit system dictionary item"
 	}
 	c.render(ctx, http.StatusOK, TplDictionaryItemDrawer, c.pageView(ctx, title, map[string]any{
-		"Mode":      "edit",
-		"BasePath":  basePath,
-		"Scope":     string(scope),
-		"TypeID":    current.ID,
-		"TypeCode":  current.Code,
-		"TypeLabel": dictionaryTypeViews([]dictionary.Type{current}, c.lang(ctx))[0].Label,
-		"Item":      dictionaryItemViews([]dictionary.Item{item}, c.lang(ctx))[0],
+		"Mode":           formModeEdit,
+		"IsEdit":         true,
+		"BasePath":       basePath,
+		"Scope":          string(scope),
+		"TypeID":         current.ID,
+		"TypeCode":       current.Code,
+		"TypeLabel":      dictionaryTypeViews([]dictionary.Type{current}, c.lang(ctx))[0].Label,
+		"Item":           dictionaryItemViews([]dictionary.Item{item}, c.lang(ctx))[0],
+		"StatusEnabled":  string(dictionary.StatusEnabled),
+		"StatusDisabled": string(dictionary.StatusDisabled),
 	}))
 }
 

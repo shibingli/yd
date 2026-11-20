@@ -17,6 +17,14 @@ import (
 // CreateMessage inserts a message with its tags and attachments atomically. | CreateMessage 原子地插入消息及其标签与附件。
 func (s *Store) CreateMessage(ctx context.Context, msg messaging.Message, tagIDs, attachmentIDs []string) error {
 	return s.transaction(ctx, []string{"yd_msg_messages", "yd_msg_message_tags", "yd_attachments", "yd_attachment_refs", "yd_msg_conversations", "yd_msg_members"}, func(tx *gorm.DB) error {
+		// 写入前在事务内锁定并重读会话与发送者成员关系：服务层的事务外检查会与并发的解散、
+		// 移除成员、解除好友或拉黑竞争，只有行锁内的复查才是权威判定。
+		// Lock and re-read the conversation and the sender membership inside the transaction: the
+		// service-level checks outside it race with a concurrent dissolve, member removal, unfriend or
+		// block, and only the in-transaction re-check under the row lock is authoritative.
+		if err := checkMessageTargetTx(tx, msg); err != nil {
+			return err
+		}
 		if err := lockMessageTypeTx(tx, msg.TenantID, msg.TypeKey); err != nil {
 			return err
 		}
@@ -35,8 +43,12 @@ func (s *Store) CreateMessage(ctx context.Context, msg messaging.Message, tagIDs
 		}
 		if len(attachmentIDs) > 0 {
 			var locked []attachments.Attachment
+			// 按 ID 排序取锁，与附件域的 Bind/Release 保持同一顺序，避免交错时的 ABBA 死锁。 |
+			// Lock in id order, matching the attachment domain's Bind/Release, so interleaving cannot
+			// form an ABBA deadlock.
 			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 				Where("tenant_id = ? AND id IN ?", msg.TenantID, attachmentIDs).
+				Order("id ASC").
 				Find(&locked).Error; err != nil {
 				return queryError(err)
 			}
@@ -120,7 +132,23 @@ func (s *Store) UpdateMessage(ctx context.Context, msg messaging.Message, tagIDs
 			return queryError(result.Error)
 		}
 		if result.RowsAffected == 0 {
-			return messaging.ErrRecalled
+			// MySQL 对「值未变化」的更新报告零影响行，因此零影响行既可能是撤回墓碑，也可能只是原样更新。
+			// 先复查存在性与状态，再决定返回 ErrRecalled 还是成功。
+			// MySQL reports zero affected rows for an update that changes nothing, so zero rows may mean
+			// either a recalled tombstone or a no-op update. Re-check existence and status before deciding
+			// between ErrRecalled and success.
+			var current messaging.Message
+			err := tx.Select("status").Where("tenant_id = ? AND id = ?", msg.TenantID, msg.ID).Take(&current).Error
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return messaging.ErrNotFound
+			}
+			if err != nil {
+				return queryError(err)
+			}
+			if current.Status == messaging.StatusRecalled {
+				return messaging.ErrRecalled
+			}
+			return nil
 		}
 		if err := tx.Where("tenant_id = ? AND message_id = ?", msg.TenantID, msg.ID).
 			Delete(&messaging.MessageTag{}).Error; err != nil {
@@ -191,9 +219,13 @@ WHERE mt.tenant_id = yd_msg_messages.tenant_id
 	case messaging.FolderSystem:
 		query = query.Where("yd_msg_messages.origin = ?", messaging.OriginSystem)
 	case messaging.FolderUnread:
+		// 与 ConversationUnread 完全一致的已读语义：消息创建时间等于水位即视为已读（>）；
+		// 尚无水位时以加入时间为基线，等于加入时刻的消息仍算未读（>=）。
+		// Exactly the read semantics of ConversationUnread: a message created at the watermark is read (>);
+		// without a watermark the join time is the baseline and a message at that instant is still unread (>=).
 		query = query.Where("yd_msg_messages.sender_id <> ?", userID).
 			Where("yd_msg_messages.status = ?", messaging.StatusSent).
-			Where("yd_msg_messages.created_at > COALESCE(mem.last_read_at, mem.joined_at)")
+			Where("((mem.last_read_at IS NOT NULL AND yd_msg_messages.created_at > mem.last_read_at) OR (mem.last_read_at IS NULL AND yd_msg_messages.created_at >= mem.joined_at))")
 	case messaging.FolderPinned:
 		query = query.Where("yd_msg_messages.origin = ? AND yd_msg_messages.pinned = ? AND yd_msg_messages.status = ?",
 			messaging.OriginSystem, true, messaging.StatusSent).
@@ -212,7 +244,9 @@ WHERE mt.tenant_id = yd_msg_messages.tenant_id
 	var out []messaging.Message
 	if err := query.Select("yd_msg_messages.*").
 		Omit("SearchText").
-		Order("yd_msg_messages.created_at DESC").
+		// id 是决胜列：同一时钟刻度的两条消息在翻页时必须保持稳定顺序。
+		// The id is the tie-breaker: two messages written at the same clock tick must page in a stable order.
+		Order("yd_msg_messages.created_at DESC, yd_msg_messages.id DESC").
 		Offset(offset).Limit(filter.PageSize).
 		Find(&out).Error; err != nil {
 		return nil, 0, queryError(err)
@@ -317,9 +351,12 @@ func (s *Store) LastMessages(ctx context.Context, tenantID string, conversationI
 			Select("yd_msg_messages.*, ROW_NUMBER() OVER (PARTITION BY yd_msg_messages.conversation_id ORDER BY yd_msg_messages.created_at DESC, yd_msg_messages.id DESC) AS yd_rank").
 			Where("yd_msg_messages.tenant_id = ? AND yd_msg_messages.conversation_id IN ?", tenantID, batch)
 		var rows []messaging.Message
+		// 派生表沿用真实表名：gormcache 按表名解析代际，别名会让写回调失效的是一张「别的表」。
+		// The derived table keeps the real table name: gormcache resolves generations by table name, and
+		// an alias would make write callbacks invalidate a different, non-existent table.
 		if err := s.dbc(ctx).
-			Table("(?) AS ranked", ranked).
-			Where("ranked.yd_rank = ?", 1).
+			Table("(?) AS yd_msg_messages", ranked).
+			Where("yd_msg_messages.yd_rank = ?", 1).
 			Find(&rows).Error; err != nil {
 			return nil, queryError(err)
 		}
@@ -455,9 +492,90 @@ func (r tagRow) tag() messaging.Tag {
 	}
 }
 
+// checkMessageTargetTx locks the conversation row and the sender's membership and re-checks every rule
+// the message needs to be accepted. The conversation lock serialises this insert with a dissolve, a
+// member removal and a read-watermark advance; the membership re-read closes the window in which the
+// sender is removed after the service's pre-check. A direct conversation additionally re-checks the
+// friendship and both block directions in the same transaction. |
+// checkMessageTargetTx 锁定会话行与发送者成员关系，并复查消息被接受所需的全部规则。会话锁让本次插入与
+// 解散、移除成员和推进已读水位串行；成员关系重读消除了发送者在服务层预检之后被移除的窗口。单聊还会在
+// 同一事务内复查好友关系与两个方向的拉黑。
+func checkMessageTargetTx(tx *gorm.DB, msg messaging.Message) error {
+	var conv messaging.Conversation
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("tenant_id = ? AND id = ?", msg.TenantID, msg.ConversationID).Take(&conv).Error; err != nil {
+		return queryError(err)
+	}
+	if conv.Status != messaging.ConversationActive {
+		return messaging.ErrConversationClosed
+	}
+	var member messaging.Member
+	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("tenant_id = ? AND conversation_id = ? AND user_id = ?", msg.TenantID, msg.ConversationID, msg.SenderID).
+		Take(&member).Error
+	switch {
+	case err == nil:
+		// 发送者必须在消息创建时刻之前已加入；加入时间更晚说明成员关系是并发重建的，旧的发送请求不再有效。
+		// The sender must have joined no later than the message creation time; a later join means the
+		// membership was rebuilt concurrently and the stale send request is no longer valid.
+		if msg.CreatedAt.Before(member.JoinedAt) {
+			return messaging.ErrNotFound
+		}
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		// 系统作者并不属于公告频道或私有通知频道；它们由 platform/system 主体写入。
+		// System authors are not members of the announcement channel or a private notice channel; those
+		// are written by the platform/system principal.
+		if msg.Origin == messaging.OriginSystem && (conv.Kind == messaging.KindSystem || conv.Kind == messaging.KindNotice) {
+			return nil
+		}
+		return messaging.ErrNotFound
+	default:
+		return queryError(err)
+	}
+	if conv.Kind != messaging.KindDirect {
+		return nil
+	}
+	var peer messaging.Member
+	if err := tx.
+		Where("tenant_id = ? AND conversation_id = ? AND user_id <> ?", msg.TenantID, msg.ConversationID, msg.SenderID).
+		Take(&peer).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return messaging.ErrNotFound
+		}
+		return queryError(err)
+	}
+	low, high := orderedPair(msg.SenderID, peer.UserID)
+	var friendship messaging.Friendship
+	// 共享锁让并发的拉黑/解除好友等待本次发送提交：BlockUser 与 RemoveFriend 都会先写这一行，
+	// 因此不会出现「检查时还是好友、提交前已被拉黑」的窗口。
+	// The shared lock makes a concurrent block/unfriend wait for this send to commit: BlockUser and
+	// RemoveFriend both write this row first, closing the window where a pair is a friendship at check
+	// time but blocked before commit.
+	if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).
+		Where("tenant_id = ? AND user_low_id = ? AND user_high_id = ?", msg.TenantID, low, high).
+		Take(&friendship).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return messaging.ErrNotFriend
+		}
+		return queryError(err)
+	}
+	var blocked int64
+	if err := tx.Model(&messaging.Block{}).
+		Where("tenant_id = ? AND ((blocker_id = ? AND blocked_id = ?) OR (blocker_id = ? AND blocked_id = ?))",
+			msg.TenantID, msg.SenderID, peer.UserID, peer.UserID, msg.SenderID).
+		Count(&blocked).Error; err != nil {
+		return queryError(err)
+	}
+	if blocked > 0 {
+		return messaging.ErrBlocked
+	}
+	return nil
+}
+
 // lockMessageTypeTx locks the referenced type row and reports an unknown type. The shared lock
-// serialises message writes against a concurrent type deletion. | lockMessageTypeTx 锁定被引用的类型行
-// 并报告未知类型。共享锁让消息写入与并发的类型删除互斥。
+// serialises message writes against a concurrent type deletion, and an archived type is refused just
+// like a missing one. | lockMessageTypeTx 锁定被引用的类型行并报告未知类型。共享锁让消息写入与并发的
+// 类型删除互斥，已归档类型与不存在的类型一样被拒绝。
 func lockMessageTypeTx(tx *gorm.DB, tenantID, key string) error {
 	key = strings.TrimSpace(key)
 	if key == "" {
@@ -465,7 +583,7 @@ func lockMessageTypeTx(tx *gorm.DB, tenantID, key string) error {
 	}
 	var row messaging.MessageType
 	err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Select("id").
-		Where("tenant_id = ? AND type_key = ?", tenantID, key).Take(&row).Error
+		Where("tenant_id = ? AND type_key = ? AND archived_at IS NULL", tenantID, key).Take(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return messaging.ErrTypeUnknown
 	}
@@ -476,8 +594,9 @@ func lockMessageTypeTx(tx *gorm.DB, tenantID, key string) error {
 }
 
 // lockMessageTagsTx locks the referenced tag rows and reports an unknown tag. Ids are ordered so
-// concurrent writers acquire the same locks in the same sequence. | lockMessageTagsTx 锁定被引用的标签行
-// 并报告未知标签。ID 会排序，使并发写入者以相同顺序获取锁。
+// concurrent writers acquire the same locks in the same sequence, and archived tags are refused just
+// like missing ones. | lockMessageTagsTx 锁定被引用的标签行并报告未知标签。ID 会排序，使并发写入者
+// 以相同顺序获取锁，已归档标签与不存在的标签一样被拒绝。
 func lockMessageTagsTx(tx *gorm.DB, tenantID string, tagIDs []string) ([]string, error) {
 	ids := uniqueSortedIDs(tagIDs)
 	if len(ids) == 0 {
@@ -485,7 +604,7 @@ func lockMessageTagsTx(tx *gorm.DB, tenantID string, tagIDs []string) ([]string,
 	}
 	var rows []messaging.Tag
 	if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Select("id").
-		Where("tenant_id = ? AND id IN ?", tenantID, ids).Order("id ASC").Find(&rows).Error; err != nil {
+		Where("tenant_id = ? AND id IN ? AND archived_at IS NULL", tenantID, ids).Order("id ASC").Find(&rows).Error; err != nil {
 		return nil, queryError(err)
 	}
 	if len(rows) != len(ids) {

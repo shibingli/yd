@@ -205,10 +205,15 @@ func Open(o Options) (*Store, error) {
 		log = ydlog.Default()
 	}
 
-	// 持久化实现缺失或不可用时 openRaw 自行降级并告警，因此这里的错误只可能来自后续两步。
-	// When the persistence implementation is missing or unusable, openRaw degrades by itself and warns, so the errors
-	// below can only come from the two assembly steps that follow.
-	raw, db, release := openRaw(o, log)
+	// 连接不可用时 openRaw 仍会降级到内存并告警；但鉴权表的迁移失败是致命错误，必须在这里上抛。
+	// A missing connection still degrades to memory inside openRaw with a warning, while a failed auth-schema
+	// migration is fatal and is raised here: starting on an in-memory store after a half-applied migration would
+	// silently hide every existing account behind an empty tenant table.
+	raw, db, release, openErr := openRaw(o, log)
+	if openErr != nil {
+		closeRelease(release)
+		return nil, openErr
+	}
 	svc, err := auth.NewService(raw, auth.Options{MasterKey: o.MasterKey})
 	if err != nil {
 		closeRelease(release)
@@ -487,8 +492,17 @@ func openMessageStore(_ any, _ *ydlog.Logger) (messaging.Store, error) {
 // 降级绝不阻塞启动：没有数据库、连库失败或迁移失败时都退回内存实现，并明确告警「数据不持久」。
 // Degradation never blocks startup: without a database, or when connecting or migrating fails, it falls back to the
 // in-memory implementation and warns explicitly that the data is not persistent.
+// openRaw 选出持久化实现，并返回它的释放函数（内存实现返回 nil）。
+// openRaw selects the persistence implementation and returns its release function (nil for the in-memory one).
+//
+// 连接层失败（未配置数据库或连接打不开）仍降级到内存实现并明确告警「数据不持久」；鉴权表的迁移失败则作为错误
+// 返回，由 Open 上抛而不是静默降级——半途失败的迁移会把既有账号留在旧库，而地址指向一个空的内存租户表。
+// A connection failure (no database configured, or the pool cannot be opened) still degrades to the in-memory
+// implementation with an explicit "data is not persistent" warning. A failed auth-schema migration is returned as an
+// error and raised by Open instead of degrading: a half-applied migration would leave every existing account in the
+// old database while the application signs in against an empty in-memory tenant table.
 {{ if ne .DB "none" -}}
-func openRaw(o Options, log *ydlog.Logger) (auth.Store, any, func() error) {
+func openRaw(o Options, log *ydlog.Logger) (auth.Store, any, func() error, error) {
 	if dsn := configuredDSN(o.Config); dsn == "" {
 		// 没有数据库的项目（yd new --db none）走的就是这一条：不打开任何连接，只把后果说清楚。
 		// A project generated with `yd new --db none` takes exactly this path: nothing is opened and the consequence is
@@ -496,7 +510,7 @@ func openRaw(o Options, log *ydlog.Logger) (auth.Store, any, func() error) {
 		log.Warn("no database is configured, auth data lives in memory and dies with the process | 未配置数据库，鉴权数据仅存于内存，进程重启即丢失",
 			ydlog.Str("key", configDSN),
 		)
-		return auth.NewMemoryStore(), nil, nil
+		return auth.NewMemoryStore(), nil, nil, nil
 	}
 
 	// DSN 绝不写进日志：它可能带着数据库口令（mysql / postgres / dm 的 DSN 就是如此）。
@@ -504,29 +518,36 @@ func openRaw(o Options, log *ydlog.Logger) (auth.Store, any, func() error) {
 	opts := ydgorm.OptionsFromConfig(o.Config)
 	db, err := ydgorm.Open(opts, log)
 	if err != nil {
-		return degradeToMemory(log, err), nil, nil
+		return degradeToMemory(log, err), nil, nil, nil
 	}
 
-	// 迁移用带超时的上下文：数据库不可达时启动要能落回内存实现，而不是一直等着连上。
-	// The migration runs under a bounded context, so an unreachable database degrades instead of hanging the boot.
+	// 迁移用带超时的上下文：迁移卡住时启动失败并如实上报，而不是无限等待连接。
+	// The migration runs under a bounded context, so a stuck schema operation fails the boot with a report instead of
+	// waiting on the connection forever.
 	ctx, cancel := context.WithTimeout(context.Background(), migrateTimeout)
 	defer cancel()
 	if err := gormstore.Migrate(ctx, db); err != nil {
 		_ = ydgorm.Close(db)
-		return degradeToMemory(log, err), nil, nil
+		// 迁移失败绝不降级：无论是重复的全局身份还是别的 schema 冲突，都需要运维先处理旧库。
+		// A migration failure never degrades: a duplicate global identity or any other schema conflict must be
+		// resolved against the old database first.
+		log.Error("auth schema migration failed, refusing to start on an in-memory fallback | 鉴权表迁移失败，拒绝以内存实现启动",
+			ydlog.Err(err),
+		)
+		return nil, nil, nil, errs.Wrap(err, ErrOpen)
 	}
 
 	store, err := gormstore.New(db, gormstore.OptionsFromConfig(o.Config))
 	if err != nil {
 		_ = ydgorm.Close(db)
-		return degradeToMemory(log, err), nil, nil
+		return degradeToMemory(log, err), nil, nil, nil
 	}
 
 	log.Info("auth data is stored in the database | 鉴权数据已存入数据库",
 		ydlog.Str("driver", driverName(opts.Driver)),
 		ydlog.Strs("tables", authTables),
 	)
-	return store, db, func() error { return ydgorm.Close(db) }
+	return store, db, func() error { return ydgorm.Close(db) }, nil
 }
 
 // configuredDSN returns the trimmed data source name, or "" when no database is configured.
@@ -565,11 +586,11 @@ func degradeToMemory(log *ydlog.Logger, err error) auth.Store {
 var authTables = []string{"yd_auth_tenants", "yd_auth_users", "yd_auth_user_tenants", "yd_auth_roles", "yd_auth_role_permissions"}
 
 {{ else -}}
-func openRaw(_ Options, log *ydlog.Logger) (auth.Store, any, func() error) {
+func openRaw(_ Options, log *ydlog.Logger) (auth.Store, any, func() error, error) {
 	// 本项目生成时就没有选择数据库，因此这里没有任何连接可开，也没有可释放的资源。
 	// This project was generated without a database, so there is no connection to open and nothing to release.
 	log.Warn("this project was generated without a database, auth data lives in memory and dies with the process | 本项目生成时未选择数据库，鉴权数据仅存于内存，进程重启即丢失")
-	return auth.NewMemoryStore(), nil, nil
+	return auth.NewMemoryStore(), nil, nil, nil
 }
 
 {{ end -}}

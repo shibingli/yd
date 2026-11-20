@@ -37,8 +37,8 @@
       "Label" (tr "field.status") "LabelKey" "field.status" "LabelHidden" true
       "Options" (list
         (dict "Value" "" "Label" (tr "ui.all") "Key" "ui.all" "Selected" (eq .Status ""))
-        (dict "Value" "enabled" "Label" (tr "status.active") "Key" "status.active" "Selected" (eq .Status "enabled"))
-        (dict "Value" "disabled" "Label" (tr "status.disabled") "Key" "status.disabled" "Selected" (eq .Status "disabled"))))}}
+        (dict "Value" .WorkflowGroupEnabled "Label" (tr "status.active") "Key" "status.active" "Selected" (eq .Status .WorkflowGroupEnabled))
+        (dict "Value" .WorkflowGroupDisabled "Label" (tr "status.disabled") "Key" "status.disabled" "Selected" (eq .Status .WorkflowGroupDisabled))))}}
     <noscript><button type="submit" class="yd-btn">{{ tr "ui.search" }}</button></noscript>
 </form>
 

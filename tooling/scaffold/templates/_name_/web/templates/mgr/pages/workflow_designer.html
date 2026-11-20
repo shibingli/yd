@@ -22,6 +22,7 @@
 <section class="yd-flow" data-yd-page="workflow-designer" data-yd-workflow-designer
          data-definition-id="{{ .Definition.ID }}"
          data-version-id="{{ .WorkflowVersion.ID }}"
+         data-note="{{ .WorkflowVersion.Note }}"
          data-save-url="/api/v1/workflows/versions/{{ .WorkflowVersion.ID }}"
          data-publish-url="/api/v1/workflows/versions/{{ .WorkflowVersion.ID }}/publish"
          data-export-json="/mgr/workflows/export?format=json&keys={{ .Definition.Key }}"
@@ -38,7 +39,7 @@
         <p class="yd-page__subtitle">
           <code class="yd-code">{{ .Definition.Key }}</code>
           · v{{ .WorkflowVersion.Version }}
-          {{- if eq .WorkflowVersion.Status "draft" }} · {{ tr "workflow.version.draft" }}{{ else }} · {{ tr "workflow.version.published" }}{{ end }}
+          {{- if .IsDraftVersion }} · {{ tr "workflow.version.draft" }}{{ else }} · {{ tr "workflow.version.published" }}{{ end }}
         </p>
       </div>
     </div>

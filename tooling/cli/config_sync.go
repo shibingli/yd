@@ -551,7 +551,7 @@ func writeConfigBaseline(fs afero.Fs, project string) error {
 	if err := fs.MkdirAll(filepath.Dir(baselinePath), 0o755); err != nil {
 		return errs.WrapDetail(err, ErrSyncApply, "create %[1]s | 创建 %[1]s", filepath.Dir(syncConfigBaselineRel))
 	}
-	if err := afero.WriteFile(fs, baselinePath, data, 0o644); err != nil {
+	if err := writeFileAtomic(fs, baselinePath, data, 0o644); err != nil {
 		return errs.WrapDetail(err, ErrSyncApply, "write %[1]s | 写入 %[1]s", syncConfigBaselineRel)
 	}
 	return nil

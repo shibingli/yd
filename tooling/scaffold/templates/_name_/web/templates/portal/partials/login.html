@@ -34,7 +34,7 @@
 */}}
 {{- define "portal/partials/login" -}}
 <form class="yd-form yd-form--login" method="post" action="/login"
-      data-yd-encrypt="sm2" data-yd-pubkey="{{ .KeyEndpoint }}"
+      data-yd-encrypt="{{ .EncryptScheme }}" data-yd-pubkey="{{ .KeyEndpoint }}"
       hx-post="/login" hx-target="#yd-workspace" hx-swap="innerMorph"
       hx-status:401="target:#yd-workspace swap:innerHTML"
       hx-status:422="target:#yd-workspace swap:innerHTML"

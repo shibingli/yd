@@ -81,6 +81,10 @@ func TestParseTargetsRejectsInvalidInput(t *testing.T) {
 		"linux/x86_64",
 		"beos/amd64",
 		"linux/amd64,broken",
+		"linux/386",
+		"linux/arm",
+		"linux/mips",
+		"linux/mipsle",
 	} {
 		t.Run(in, func(t *testing.T) {
 			got, err := ParseTargets(in)

@@ -68,9 +68,9 @@
         "ID" "yd-settings-theme" "Name" "theme" "ThemeSet" true
         "Label" (tr "settings.field.theme") "LabelKey" "settings.field.theme"
         "Options" (list
-          (dict "Value" "light" "Key" "settings.theme.light")
-          (dict "Value" "dark" "Key" "settings.theme.dark")
-          (dict "Value" "system" "Key" "settings.theme.system" "Selected" true)))}}
+          (dict "Value" .Values.ThemeLight "Key" "settings.theme.light")
+          (dict "Value" .Values.ThemeDark "Key" "settings.theme.dark")
+          (dict "Value" .Values.ThemeSystem "Key" "settings.theme.system" "Selected" true)))}}
 
 
       {{template "partials/form.check" (dict

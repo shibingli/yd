@@ -17,6 +17,7 @@ import (
 	ydlog "{{ .YdxModule }}/log"
 	"{{ .YdxModule }}/nodeid"
 	"{{ .YdxModule }}/asynq"
+	ydredis "{{ .YdxModule }}/redis"
 	"{{ .YdModule }}/messaging"
 	"{{ .YdModule }}/messaging/realtime"
 )
@@ -82,7 +83,7 @@ func NewMessageBus(cfg *config.Config, log *ydlog.Logger, nodeID string, redisCl
 		// asynq 的 RedisClientOpt 只支持单机连接；sentinel / cluster 模式下共享 Pub/Sub 总线照常工作，
 		// 但持久重试不会被错误地声称可用。
 		mode := strings.ToLower(strings.TrimSpace(cfg.GetString("redis.mode")))
-		if mode != "" && mode != "single" {
+		if mode != "" && mode != ydredis.ModeSingle {
 			log.Warn("asynq durable retry supports single-node Redis only; failed broadcasts are not retried in this mode | asynq 持久重试只支持单机 Redis；该模式下失败广播不会重试",
 				ydlog.Str("mode", mode),
 			)

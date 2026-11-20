@@ -6,6 +6,14 @@
 # 环境变量前缀 YD_，下划线映射多级嵌套：YD_SERVER_PORT -> server.port
 # Environment variables use the YD_ prefix, underscores map onto nested keys: YD_SERVER_PORT -> server.port
 
+# 运行环境：development / production（接受 dev / prod 短别名）。主密钥闸门、Cookie Secure、
+# 种子口令与资产压缩都以这里的值为准；YD_APP_ENV 是回退，生产部署请显式设为 production。 |
+# Runtime environment: development / production (dev / prod aliases are accepted). The master-key
+# gate, the Secure cookie attribute, seed passwords and asset minification all read this value;
+# YD_APP_ENV is the fallback, and a production deployment should set it explicitly.
+app:
+  env: development
+
 # 节点身份：跨重启、硬件更换、虚机/容器迁移保持稳定的唯一标识。
 # Node identity: a stable unique identifier across restarts, hardware replacement and VM/container migration.
 #
@@ -122,6 +130,12 @@ seed:
 auth:
   master_key: ""      # production must inject it through YD_AUTH_MASTER_KEY; empty refuses to start outside development and falls back to the development key with a warning only in development | 生产环境必须通过 YD_AUTH_MASTER_KEY 注入；非 development 留空会拒绝启动，仅开发环境回退到开发密钥并告警
   token_ttl: 2h       # token lifetime, shared with the MaxAge of the sign-in cookie | 令牌有效期，登录 cookie 的 MaxAge 与它同源
+  # Multi-replica deployments must configure the same SM2 private key (hex): otherwise a browser that
+  # fetched the public key from replica A fails to decrypt when its sign-in lands on replica B. Empty
+  # generates a per-process key, suitable only for a single instance or sticky sessions. |
+  # 多副本部署必须配置同一个 SM2 私钥（十六进制），否则浏览器从副本 A 取公钥、登录落到副本 B 时解密失败。
+  # 留空时每个进程各自生成，只适合单实例或粘性会话。
+  sm2_private_key: ""
 {{- if ne .DB "none" }}
   # Ceiling of one auth statement; 0 keeps the framework default (no extra bound). | 单条鉴权语句的上限；0 表示沿用框架默认值（不额外设限）。
   gorm:
@@ -233,6 +247,10 @@ redis:
 # Two-level cache: local L1 ring plus Redis L2; degrades to local-only when Redis is unreachable. | 二级缓存：L1 本地环形缓存 + L2 Redis；Redis 不可达时自动降级为仅本地。
 cache:
   prefix: "yd:cache:"     # Redis key prefix | Redis 键前缀
+  # 多个部署共用同一套 Redis 时必须给每个部署不同的值；留空按程序名与环境推导。 |
+  # Deployments sharing one Redis must use distinct values; empty derives one from the binary
+  # name and YD_ENV.
+  deployment_id: ""
   lease: 30s              # L1 revalidation lease | L1 重新确认租约
   load_timeout: 30s       # shared loader ceiling | 共享加载上限
   event_buffer: 256       # subscriber queue | 订阅队列
@@ -306,8 +324,9 @@ cache:
 {{- end }}
 
 asynq:
-  queues: "critical:3,default:2,low:1"   # 队列与权重 | queues and weights
+  queues: "critical:3,default:2,low:1"   # 队列与权重；单队列与总权重上限均为 1000 | queues and weights; per-queue and total weight ceilings are 1000
   concurrency: 10                        # 并发消费者数 | concurrent consumers
+  max_payload_bytes: 1048576             # 单个任务序列化载荷上限；<=0 使用 1 MiB | serialized task-body limit; <=0 uses 1 MiB
 {{- if .GRPC }}
 
 grpc:

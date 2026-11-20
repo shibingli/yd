@@ -123,7 +123,7 @@
          All three password fields carry data-yd-sensitive: with several sensitive fields in one request the module
          replaces each of them, so no clear text survives anywhere in the body. */}}
     <form class="yd-form" method="post" action="/account/password"
-          data-yd-encrypt="sm2" data-yd-pubkey="{{ .KeyEndpoint }}"
+          data-yd-encrypt="{{ .EncryptScheme }}" data-yd-pubkey="{{ .KeyEndpoint }}"
           hx-post="/account/password" hx-target="#yd-workspace" hx-swap="innerMorph"
           hx-status:400="target:#yd-errors swap:innerHTML"
           hx-status:401="target:#yd-errors swap:innerHTML"

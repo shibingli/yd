@@ -2,11 +2,13 @@ package messaging
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/shibingli/ydx/errs"
+	ydlog "github.com/shibingli/ydx/log"
 )
 
 // Conversations returns the conversation list of the actor with unread counts and last messages. |
@@ -76,7 +78,10 @@ func (s *Service) Conversations(ctx context.Context, actor Actor) ([]Conversatio
 		}
 		if msg, ok := last[conv.ID]; ok {
 			if msg.Recalled() && !actor.Manage {
-				msg.BodyMarkdown, msg.BodyHTML, msg.BodyText = "", "", ""
+				// A recalled message is a tombstone: its title is content just like the body and must never
+				// leak through a preview without moderation rights. | 撤回的消息是墓碑：标题和正文一样都是内容，
+				// 在没有管理权时绝不能经预览泄漏。
+				stripRecalled(&msg)
 			}
 			view.LastMessage = &msg
 		}
@@ -97,11 +102,11 @@ func conversationTime(v ConversationView) time.Time {
 	return v.CreatedAt
 }
 
-// openConversation 解析会话与成员、校验成员关系，并在确有未读时推进水位；它同时服务完整会话视图
-// 与只需要消息体的历史刷新，避免两条路径各自实现一遍已读语义。
-// openConversation resolves the conversation and its members, checks membership and advances the watermark when
-// there really are unread messages. It serves both the full conversation view and the history refresh that only
-// needs message bodies, so neither path keeps a second copy of the read semantics.
+// openConversation 解析会话与成员并校验成员关系，但不推进已读水位：调用方必须先成功加载线程，
+// 之后才允许标记已读，因此加载失败绝不会把没看到的消息标成已读。
+// openConversation resolves the conversation and its members and checks membership. It deliberately does not
+// advance the read watermark: the caller must load the thread first and only then mark it read, so a failed
+// history load can never mark unseen messages as read.
 func (s *Service) openConversation(ctx context.Context, actor Actor, conversationID string) (Conversation, []Member, int, error) {
 	if !actor.valid() {
 		return Conversation{}, nil, 0, ErrInvalidInput
@@ -125,52 +130,75 @@ func (s *Service) openConversation(ctx context.Context, actor Actor, conversatio
 			return Conversation{}, nil, 0, ErrNotFound
 		}
 	}
+	// 未读只读一次：管理员旁路查不到成员关系时该查询同样返回零值。
+	// Read the unread map once; a moderator without membership simply gets no entry and therefore zero.
+	unread, err := s.store.ConversationUnread(ctx, actor.TenantID, actor.ID)
+	if err != nil {
+		return Conversation{}, nil, 0, errs.Wrap(err, ErrUnavailable)
+	}
+	return conv, members, unread[conv.ID], nil
+}
 
-	// 打开会话即推进已读水位；管理员旁路查看不推进，避免替成员“读掉”消息。
-	// 只有确实存在未读时才推进并广播：否则一次线程刷新会触发一条已读事件，对方的刷新又触发下一条，
-	// 两个客户端就会互相来回推送。
-	// Opening a conversation advances the watermark; an administrator's moderation view does not, so it never marks
-	// messages read on a member's behalf. The watermark only moves and only emits when there really are unread
-	// messages: otherwise one refresh emits a read event, the peer's refresh emits the next one, and two clients
-	// ping-pong forever.
-	// 未读只读一次：打开会话后水位若推进，未读数直接归零，不再为视图重复执行一次聚合查询。
-	// Read the unread map once: when opening advances the watermark the count becomes zero, so the view
-	// never needs a second aggregate query.
-	member := containsMember(members, actor.ID)
-	unreadCount := 0
-	if member {
-		unreadBefore, err := s.store.ConversationUnread(ctx, actor.TenantID, actor.ID)
-		if err != nil {
-			return Conversation{}, nil, 0, errs.Wrap(err, ErrUnavailable)
-		}
-		unreadCount = unreadBefore[conv.ID]
-		if unreadCount > 0 {
-			now := s.options.Now()
-			if err := s.store.AdvanceRead(ctx, actor.TenantID, conv.ID, actor.ID, now); err != nil {
-				return Conversation{}, nil, 0, errs.Wrap(err, ErrUnavailable)
-			}
-			unreadCount = 0
-			for i := range members {
-				if members[i].UserID == actor.ID {
-					members[i].LastReadAt = &now
-				}
-			}
-			// 受众包含读者本人：读者自己的 WebSocket 连接也要据此刷新未读角标，否则角标会一直停留在旧值。
-			// The audience includes the reader: their own WebSocket connection needs the event to refresh the unread
-			// badge, otherwise the badge keeps the previous count until a page reload.
-			s.emit(ctx, Event{Type: EventMessageRead, TenantID: actor.TenantID, ConversationID: conv.ID, ActorID: actor.ID, Audience: memberIDsOf(members), Detail: map[string]string{"at": now.UTC().Format(time.RFC3339)}})
+// markConversationRead advances the actor's watermark after the thread has loaded and emits the read event
+// only when the member really had unread messages. The watermark moves to the newest committed message instead
+// of the caller's clock, so a message committed later with an earlier timestamp can never be marked read. |
+// markConversationRead 在线程加载完成后推进主体水位，并仅在成员确实有未读时发出已读事件。水位推进到当前
+// 已提交的最新消息而非调用方的时钟，因此稍后提交、时间戳更早的消息绝不会被误标为已读。
+func (s *Service) markConversationRead(ctx context.Context, actor Actor, conv Conversation, members []Member, unreadBefore int) (int, error) {
+	if unreadBefore <= 0 || !containsMember(members, actor.ID) {
+		return unreadBefore, nil
+	}
+	at, moved, err := s.advanceReadToLatest(ctx, actor.TenantID, conv.ID, actor.ID)
+	if err != nil {
+		return 0, errs.Wrap(err, ErrUnavailable)
+	}
+	if !moved {
+		// 没有可推进的目标；保持原水位与未读数，绝不广播一条并未发生的已读。
+		// There is nothing to advance to; keep the previous watermark and count, and never emit a read that did not happen.
+		return unreadBefore, nil
+	}
+	for i := range members {
+		if members[i].UserID == actor.ID {
+			members[i].LastReadAt = &at
 		}
 	}
-	if !member {
-		// 管理员旁路查看：没有成员关系，因此没有上面那次水位查询可复用，需要单独取一次。
-		// A moderator viewing without membership has no watermark query to reuse, so read it here.
-		unread, err := s.store.ConversationUnread(ctx, actor.TenantID, actor.ID)
-		if err != nil {
-			return Conversation{}, nil, 0, errs.Wrap(err, ErrUnavailable)
-		}
-		unreadCount = unread[conv.ID]
+	// 受众包含读者本人：读者自己的 WebSocket 连接也要据此刷新未读角标，否则角标会一直停留在旧值。
+	// The audience includes the reader: their own WebSocket connection needs the event to refresh the unread
+	// badge, otherwise the badge keeps the previous count until a page reload.
+	s.emit(ctx, Event{Type: EventMessageRead, TenantID: actor.TenantID, ConversationID: conv.ID, ActorID: actor.ID, Audience: memberIDsOf(members), Detail: map[string]string{DetailAt: at.UTC().Format(time.RFC3339)}})
+	return 0, nil
+}
+
+// readWatermarkAdvancer is the optional Store capability that resolves a read watermark from committed
+// messages instead of the caller's clock. | readWatermarkAdvancer 是 Store 的可选能力：从已提交消息解析
+// 已读水位，而不是使用调用方的时钟。
+type readWatermarkAdvancer interface {
+	// AdvanceReadToLatest moves the watermark to the newest committed sent message and reports the effective
+	// watermark plus whether it moved. | AdvanceReadToLatest 把水位推进到最新已提交的 sent 消息，并报告
+	// 生效水位与是否发生推进。
+	AdvanceReadToLatest(ctx context.Context, tenantID, conversationID, userID string) (time.Time, bool, error)
+}
+
+// advanceReadToLatest resolves the newest committed message and moves the watermark to it. Stores without the
+// atomic capability fall back to reading the newest page; an empty conversation never advances. |
+// advanceReadToLatest 解析最新已提交消息并把水位推进到它。没有原子能力的存储回退到读取最新一页；
+// 空会话绝不推进。
+func (s *Service) advanceReadToLatest(ctx context.Context, tenantID, conversationID, userID string) (time.Time, bool, error) {
+	if advancer, ok := s.store.(readWatermarkAdvancer); ok {
+		return advancer.AdvanceReadToLatest(ctx, tenantID, conversationID, userID)
 	}
-	return conv, members, unreadCount, nil
+	messages, _, err := s.store.ListMessagesByConversation(ctx, tenantID, conversationID, 1, 1, false)
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	if len(messages) == 0 {
+		return time.Time{}, false, nil
+	}
+	at := messages[0].CreatedAt
+	if err := s.store.AdvanceRead(ctx, tenantID, conversationID, userID, at); err != nil {
+		return time.Time{}, false, err
+	}
+	return at, true, nil
 }
 
 // Conversation returns one conversation, its newest page of messages and marks it read. | Conversation 返回一个会话及其最新一页消息，并标记已读。
@@ -187,9 +215,23 @@ func (s *Service) Conversation(ctx context.Context, actor Actor, conversationID 
 	// A recalled message stays in the thread as a tombstone; the view layer strips its body for
 	// readers without moderation rights. | 撤回的消息以墓碑形式留在会话里；视图层会为无管理权的读者
 	// 剥掉正文。
-	messages, err := s.conversationMessages(ctx, actor.TenantID, conv.ID, 1, page, true)
+	// Fetch one extra message to decide whether the "load earlier" control is needed without a
+	// second count query. The extra oldest row is dropped before rendering. |
+	// 多取一条消息即可判断是否需要「加载更早」，无需第二次计数查询；渲染前丢弃最旧的那条。
+	messages, err := s.conversationMessages(ctx, actor.TenantID, conv.ID, 1, page+1, true)
 	if err != nil {
 		return ConversationView{}, nil, errs.Wrap(err, ErrUnavailable)
+	}
+	hasEarlier := len(messages) > page
+	if hasEarlier {
+		messages = messages[1:]
+	}
+	// 线程已经成功加载，此时才允许推进水位；加载失败的路径在上面直接返回，水位保持不动。
+	// The thread has loaded successfully, so and only so may the watermark move; a failed load returned above and
+	// left the watermark untouched.
+	unreadCount, err = s.markConversationRead(ctx, actor, conv, members, unreadCount)
+	if err != nil {
+		return ConversationView{}, nil, err
 	}
 	views, err := s.messageViews(ctx, actor, messages, members, true)
 	if err != nil {
@@ -204,7 +246,7 @@ func (s *Service) Conversation(ctx context.Context, actor Actor, conversationID 
 	if err != nil {
 		return ConversationView{}, nil, errs.Wrap(err, ErrUnavailable)
 	}
-	view := ConversationView{Conversation: conv}
+	view := ConversationView{Conversation: conv, HasEarlier: hasEarlier}
 	for _, id := range memberIDs {
 		if profile, ok := profiles[id]; ok {
 			view.Members = append(view.Members, profile)
@@ -228,19 +270,45 @@ func (s *Service) Conversation(ctx context.Context, actor Actor, conversationID 
 // ConversationMessages 返回一个会话的最新一页消息并推进已读水位，但不解析成员资料、也不构造会话标题。
 // 历史刷新片段只渲染消息，成员头像与汇总视图在那里都是会被丢弃的工作。
 func (s *Service) ConversationMessages(ctx context.Context, actor Actor, conversationID string) ([]MessageView, error) {
-	conv, members, _, err := s.openConversation(ctx, actor, conversationID)
+	views, _, err := s.ConversationMessagesLimit(ctx, actor, conversationID, 0)
+	return views, err
+}
+
+// ConversationMessagesLimit returns the newest limit messages and whether older messages exist. A
+// non-positive limit uses the configured page size; the value is capped to keep one response bounded.
+// It advances the read watermark exactly like opening the conversation. |
+// ConversationMessagesLimit 返回最新的 limit 条消息以及是否存在更早的消息。limit 非正时使用配置页长；
+// 取值有上限，使单次响应有界。它像打开会话一样推进已读水位。
+func (s *Service) ConversationMessagesLimit(ctx context.Context, actor Actor, conversationID string, limit int) ([]MessageView, bool, error) {
+	conv, members, unreadCount, err := s.openConversation(ctx, actor, conversationID)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	page := s.options.PageSize
-	if page < 50 {
-		page = 50
+	if limit <= 0 {
+		limit = s.options.PageSize
 	}
-	messages, err := s.conversationMessages(ctx, actor.TenantID, conv.ID, 1, page, true)
+	if limit < 50 {
+		limit = 50
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+	messages, err := s.conversationMessages(ctx, actor.TenantID, conv.ID, 1, limit+1, true)
 	if err != nil {
-		return nil, errs.Wrap(err, ErrUnavailable)
+		return nil, false, errs.Wrap(err, ErrUnavailable)
 	}
-	return s.messageViews(ctx, actor, messages, members, true)
+	hasEarlier := len(messages) > limit
+	if hasEarlier {
+		messages = messages[1:]
+	}
+	if _, err := s.markConversationRead(ctx, actor, conv, members, unreadCount); err != nil {
+		return nil, false, err
+	}
+	views, err := s.messageViews(ctx, actor, messages, members, true)
+	if err != nil {
+		return nil, false, err
+	}
+	return views, hasEarlier, nil
 }
 
 // ConversationMessagesAfter returns the messages newer than one anchor, oldest first. It advances the read
@@ -251,7 +319,7 @@ func (s *Service) ConversationMessagesAfter(ctx context.Context, actor Actor, co
 	if strings.TrimSpace(afterID) == "" {
 		return nil, ErrInvalidInput
 	}
-	conv, members, _, err := s.openConversation(ctx, actor, conversationID)
+	conv, members, unreadCount, err := s.openConversation(ctx, actor, conversationID)
 	if err != nil {
 		return nil, err
 	}
@@ -290,6 +358,9 @@ func (s *Service) ConversationMessagesAfter(ctx context.Context, actor Actor, co
 		if len(messages) > limit {
 			messages = messages[:limit]
 		}
+	}
+	if _, err := s.markConversationRead(ctx, actor, conv, members, unreadCount); err != nil {
+		return nil, err
 	}
 	return s.messageViews(ctx, actor, messages, members, true)
 }
@@ -394,11 +465,40 @@ func (s *Service) CreateGroup(ctx context.Context, actor Actor, title string, me
 	if err := s.store.CreateConversation(ctx, conv, members); err != nil {
 		return Conversation{}, errs.Wrap(err, ErrUnavailable)
 	}
-	s.emit(ctx, Event{Type: EventConversationChanged, TenantID: actor.TenantID, ConversationID: id, ActorID: actor.ID, Audience: memberIDs, Detail: map[string]string{"action": "created"}})
+	s.emit(ctx, Event{Type: EventConversationChanged, TenantID: actor.TenantID, ConversationID: id, ActorID: actor.ID, Audience: memberIDs, Detail: map[string]string{DetailAction: ActionCreated}})
 	return conv, nil
 }
 
-// AddGroupMember adds one friend to a group the actor owns. | AddGroupMember 把一位好友加入主体拥有的群。
+// boundedMemberAdder is the optional Store capability that inserts a membership under the conversation row
+// lock and enforces the member ceiling. | boundedMemberAdder 是 Store 的可选能力：在会话行锁内插入成员关系
+// 并执行成员上限。
+type boundedMemberAdder interface {
+	// AddMemberBounded inserts one membership and reports whether it was inserted. An existing membership is
+	// idempotent success, a full group yields ErrTooManyMembers and a dissolved conversation yields
+	// ErrConversationClosed. | AddMemberBounded 插入一条成员关系并报告是否插入。已存在按幂等成功处理，
+	// 群满返回 ErrTooManyMembers，已解散返回 ErrConversationClosed。
+	AddMemberBounded(ctx context.Context, member Member, maxMembers int) (bool, error)
+}
+
+// conversationWriteError preserves the business sentinels of a locked conversation write. |
+// conversationWriteError 保留会话行锁写入的业务哨兵。
+func conversationWriteError(err error) error {
+	switch {
+	case errors.Is(err, ErrNotFound):
+		return ErrNotFound
+	case errors.Is(err, ErrConversationClosed):
+		return ErrConversationClosed
+	case errors.Is(err, ErrTooManyMembers):
+		return ErrTooManyMembers
+	default:
+		return errs.Wrap(err, ErrUnavailable)
+	}
+}
+
+// AddGroupMember adds one friend to a group the actor owns. The membership is inserted under the conversation
+// row lock so a concurrent add cannot exceed MaxMembers: the ceiling check and the insert are one atomic step
+// on stores that provide the bounded capability. | AddGroupMember 把一位好友加入主体拥有的群。成员关系在
+// 会话行锁内插入，并发添加无法突破 MaxMembers：提供有界能力的存储把上限检查与插入放在同一个原子步骤里。
 func (s *Service) AddGroupMember(ctx context.Context, actor Actor, conversationID, memberID string) error {
 	conv, actorMember, err := s.groupForChange(ctx, actor, conversationID)
 	if err != nil {
@@ -408,9 +508,33 @@ func (s *Service) AddGroupMember(ctx context.Context, actor Actor, conversationI
 		return ErrForbidden
 	}
 	memberID = strings.TrimSpace(memberID)
+	if memberID == "" {
+		return ErrInvalidInput
+	}
 	if err := s.requireFriend(ctx, actor.TenantID, actor.ID, memberID); err != nil {
 		return err
 	}
+	member := Member{
+		JoinedAt:       s.options.Now(),
+		ID:             mustID(s, "mb_"),
+		TenantID:       actor.TenantID,
+		ConversationID: conv.ID,
+		UserID:         memberID,
+		Role:           MemberPlain,
+	}
+	if adder, ok := s.store.(boundedMemberAdder); ok {
+		added, err := adder.AddMemberBounded(ctx, member, s.options.MaxMembers)
+		if err != nil {
+			return conversationWriteError(err)
+		}
+		if !added {
+			return nil
+		}
+		s.emitMemberChange(ctx, actor, conv.ID, ActionMemberAdded)
+		return nil
+	}
+	// 没有有界能力的存储只能先查后插；gormstore 始终走上面的原子路径。
+	// A store without the bounded capability can only check and then insert; gormstore always takes the atomic path above.
 	members, err := s.store.ListMembers(ctx, actor.TenantID, conv.ID)
 	if err != nil {
 		return errs.Wrap(err, ErrUnavailable)
@@ -421,19 +545,23 @@ func (s *Service) AddGroupMember(ctx context.Context, actor Actor, conversationI
 	if len(members)+1 > s.options.MaxMembers {
 		return ErrTooManyMembers
 	}
-	member := Member{
-		JoinedAt:       s.options.Now(),
-		ID:             mustID(s, "mb_"),
-		TenantID:       actor.TenantID,
-		ConversationID: conv.ID,
-		UserID:         memberID,
-		Role:           MemberPlain,
-	}
 	if err := s.store.AddMember(ctx, member); err != nil {
 		return errs.Wrap(err, ErrUnavailable)
 	}
-	s.emit(ctx, Event{Type: EventConversationChanged, TenantID: actor.TenantID, ConversationID: conv.ID, ActorID: actor.ID, Audience: memberIDsOf(members), Detail: map[string]string{"action": "member_added"}})
+	s.emit(ctx, Event{Type: EventConversationChanged, TenantID: actor.TenantID, ConversationID: conv.ID, ActorID: actor.ID, Audience: append(memberIDsOf(members), memberID), Detail: map[string]string{DetailAction: ActionMemberAdded}})
 	return nil
+}
+
+// emitMemberChange broadcasts a membership change to the current member set. |
+// emitMemberChange 向当前成员集合广播一次成员变化。
+func (s *Service) emitMemberChange(ctx context.Context, actor Actor, conversationID, action string) {
+	members, err := s.store.ListMembers(ctx, actor.TenantID, conversationID)
+	if err != nil {
+		s.log.Warn("conversation member refresh failed | 会话成员刷新失败",
+			ydlog.Err(err), ydlog.Str("conversation", conversationID))
+		return
+	}
+	s.emit(ctx, Event{Type: EventConversationChanged, TenantID: actor.TenantID, ConversationID: conversationID, ActorID: actor.ID, Audience: memberIDsOf(members), Detail: map[string]string{DetailAction: action}})
 }
 
 // RemoveGroupMember removes one member from a group the actor owns. | RemoveGroupMember 从主体拥有的群移除一位成员。
@@ -452,7 +580,7 @@ func (s *Service) RemoveGroupMember(ctx context.Context, actor Actor, conversati
 		return mapStoreError(err, ErrNotFound)
 	}
 	members, _ := s.store.ListMembers(ctx, actor.TenantID, conv.ID)
-	s.emit(ctx, Event{Type: EventConversationChanged, TenantID: actor.TenantID, ConversationID: conv.ID, ActorID: actor.ID, Audience: append(memberIDsOf(members), memberID), Detail: map[string]string{"action": "member_removed"}})
+	s.emit(ctx, Event{Type: EventConversationChanged, TenantID: actor.TenantID, ConversationID: conv.ID, ActorID: actor.ID, Audience: append(memberIDsOf(members), memberID), Detail: map[string]string{DetailAction: ActionMemberRemoved}})
 	return nil
 }
 
@@ -470,7 +598,7 @@ func (s *Service) LeaveGroup(ctx context.Context, actor Actor, conversationID st
 		return mapStoreError(err, ErrNotFound)
 	}
 	members, _ := s.store.ListMembers(ctx, actor.TenantID, conv.ID)
-	s.emit(ctx, Event{Type: EventConversationChanged, TenantID: actor.TenantID, ConversationID: conv.ID, ActorID: actor.ID, Audience: memberIDsOf(members), Detail: map[string]string{"action": "member_left"}})
+	s.emit(ctx, Event{Type: EventConversationChanged, TenantID: actor.TenantID, ConversationID: conv.ID, ActorID: actor.ID, Audience: memberIDsOf(members), Detail: map[string]string{DetailAction: ActionMemberLeft}})
 	return nil
 }
 
@@ -494,7 +622,7 @@ func (s *Service) RenameGroup(ctx context.Context, actor Actor, conversationID, 
 		return errs.Wrap(err, ErrUnavailable)
 	}
 	members, _ := s.store.ListMembers(ctx, actor.TenantID, conv.ID)
-	s.emit(ctx, Event{Type: EventConversationChanged, TenantID: actor.TenantID, ConversationID: conv.ID, ActorID: actor.ID, Audience: memberIDsOf(members), Detail: map[string]string{"action": "renamed"}})
+	s.emit(ctx, Event{Type: EventConversationChanged, TenantID: actor.TenantID, ConversationID: conv.ID, ActorID: actor.ID, Audience: memberIDsOf(members), Detail: map[string]string{DetailAction: ActionRenamed}})
 	return nil
 }
 
@@ -513,7 +641,7 @@ func (s *Service) DissolveGroup(ctx context.Context, actor Actor, conversationID
 	if err := s.store.UpdateConversation(ctx, conv); err != nil {
 		return errs.Wrap(err, ErrUnavailable)
 	}
-	s.emit(ctx, Event{Type: EventConversationChanged, TenantID: actor.TenantID, ConversationID: conv.ID, ActorID: actor.ID, Audience: memberIDsOf(members), Detail: map[string]string{"action": "dissolved"}})
+	s.emit(ctx, Event{Type: EventConversationChanged, TenantID: actor.TenantID, ConversationID: conv.ID, ActorID: actor.ID, Audience: memberIDsOf(members), Detail: map[string]string{DetailAction: ActionDissolved}})
 	return nil
 }
 
@@ -543,12 +671,19 @@ func (s *Service) groupForChange(ctx context.Context, actor Actor, conversationI
 	return conv, member, nil
 }
 
-// MarkRead advances the actor's read watermark in a conversation. | MarkRead 推进主体在会话中的已读水位。
+// MarkRead advances the actor's read watermark in a conversation. The watermark targets the newest committed
+// message rather than the caller's clock, so a concurrently committed message with an earlier timestamp stays
+// unread. | MarkRead 推进主体在会话中的已读水位。水位指向当前已提交的最新消息而非调用方时钟，
+// 因此并发提交、时间戳更早的消息仍保持未读。
 func (s *Service) MarkRead(ctx context.Context, actor Actor, conversationID string) error {
 	if !actor.valid() {
 		return ErrInvalidInput
 	}
-	members, err := s.store.ListMembers(ctx, actor.TenantID, strings.TrimSpace(conversationID))
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return ErrNotFound
+	}
+	members, err := s.store.ListMembers(ctx, actor.TenantID, conversationID)
 	if err != nil {
 		return errs.Wrap(err, ErrUnavailable)
 	}
@@ -562,14 +697,17 @@ func (s *Service) MarkRead(ctx context.Context, actor Actor, conversationID stri
 	if unread[conversationID] == 0 {
 		return nil
 	}
-	now := s.options.Now()
-	if err := s.store.AdvanceRead(ctx, actor.TenantID, conversationID, actor.ID, now); err != nil {
+	at, moved, err := s.advanceReadToLatest(ctx, actor.TenantID, conversationID, actor.ID)
+	if err != nil {
 		return errs.Wrap(err, ErrUnavailable)
+	}
+	if !moved {
+		return nil
 	}
 	// 与打开会话一致：读者本人也在受众里，自己的 WebSocket 才能立即刷新未读角标。
 	// As with opening a conversation, the reader is part of the audience so their own WebSocket refreshes the badge
 	// immediately.
-	s.emit(ctx, Event{Type: EventMessageRead, TenantID: actor.TenantID, ConversationID: conversationID, ActorID: actor.ID, Audience: memberIDsOf(members), Detail: map[string]string{"at": now.UTC().Format(time.RFC3339)}})
+	s.emit(ctx, Event{Type: EventMessageRead, TenantID: actor.TenantID, ConversationID: conversationID, ActorID: actor.ID, Audience: memberIDsOf(members), Detail: map[string]string{DetailAt: at.UTC().Format(time.RFC3339)}})
 	return nil
 }
 

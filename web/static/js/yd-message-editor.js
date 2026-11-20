@@ -105,13 +105,17 @@
     return items;
   }
 
+  /* THEMES 是编辑器读取的主题取值；字面量只在这里出现。 | THEMES holds the theme values the editor
+     reads; the literals appear only here. */
+  var THEMES = {LIGHT: "light", DARK: "dark", AUTO: "auto", SYSTEM: "system"};
+
   /* prefersDark 解析三态主题中的「跟随系统」。 | prefersDark resolves "system" in the three-state theme. */
   function prefersDark() {
-    var theme = document.documentElement.getAttribute("data-theme") || "auto";
-    if (theme === "dark") {
+    var theme = document.documentElement.getAttribute("data-theme") || THEMES.AUTO;
+    if (theme === THEMES.DARK) {
       return true;
     }
-    if (theme === "light") {
+    if (theme === THEMES.LIGHT) {
       return false;
     }
     return !!(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);

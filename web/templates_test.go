@@ -233,9 +233,10 @@ func templateFuncs() template.FuncMap {
 // templateData 是渲染每个页面所用的固定数据；它覆盖模板的所有分支。
 func templateData() map[string]any {
 	return map[string]any{
-		"Title": "Dashboard",
-		"Lang":  "en",
-		"Theme": "light",
+		"Title":  "Dashboard",
+		"Lang":   LangEN,
+		"Theme":  ThemeLight,
+		"Values": TemplateValues(),
 		// I18nJSON is template.JS: the script tag is a JavaScript container, so any other type
 		// would be json.Marshal'ed into a quoted string instead of a raw object.
 		// I18nJSON 用 template.JS：该脚本标签是 JavaScript 容器，其它类型会被 json.Marshal
@@ -518,7 +519,7 @@ func TestDashboardLayoutHasSidebarTopbarWorkspace(t *testing.T) {
 			"top bar":            `class="yd-topbar"`,
 			"target inheritance": `hx-target:inherited="#yd-workspace"`,
 			"swap inheritance":   `hx-swap:inherited="innerMorph"`,
-			"url inheritance":    `hx-push-url:inherited="true"`,
+			"url inheritance":    `hx-push-url:inherited="false"`,
 			"boost inheritance":  `hx-boost:inherited="true"`,
 			"progress bar":       `id="yd-progress"`,
 			"nav links":          `data-yd-nav=`,

@@ -33,6 +33,55 @@ const (
 	EventConversationChanged = "conversation.changed"
 )
 
+// Event detail keys used by Event.Detail. | Event.Detail 使用的事件细节键。
+const (
+	// DetailAction names the conversation change carried by an event. | DetailAction 命名事件携带的会话变更动作。
+	DetailAction = "action"
+	// DetailCatalog names the catalog family carried by an event. | DetailCatalog 命名事件携带的目录族。
+	DetailCatalog = "catalog"
+	// DetailKey carries the affected catalog key. | DetailKey 携带受影响的目录键。
+	DetailKey = "key"
+	// DetailAt carries a UTC timestamp in RFC 3339 form. | DetailAt 以 RFC 3339 形式携带 UTC 时间戳。
+	DetailAt = "at"
+)
+
+// Conversation change actions carried in Event.Detail[DetailAction]. | Event.Detail[DetailAction] 携带的会话变更动作。
+const (
+	// ActionCreated announces a new conversation. | ActionCreated 宣告新建会话。
+	ActionCreated = "created"
+	// ActionMemberAdded announces an added group member. | ActionMemberAdded 宣告新增群成员。
+	ActionMemberAdded = "member_added"
+	// ActionMemberRemoved announces a removed group member. | ActionMemberRemoved 宣告移除群成员。
+	ActionMemberRemoved = "member_removed"
+	// ActionMemberLeft announces a member leaving a group. | ActionMemberLeft 宣告成员退出群聊。
+	ActionMemberLeft = "member_left"
+	// ActionRenamed announces a conversation rename. | ActionRenamed 宣告会话改名。
+	ActionRenamed = "renamed"
+	// ActionDissolved announces a dissolved group. | ActionDissolved 宣告群聊解散。
+	ActionDissolved = "dissolved"
+)
+
+// Audit action identifiers persisted in yd_msg_audit.action. They are machine-readable values and must
+// never drift, so every write path uses these constants instead of spelling the string again. |
+// 审计动作标识，持久化在 yd_msg_audit.action。它们是机器可读的稳定值，绝不能漂移，因此每个写入路径都
+// 使用这些常量，而不是再拼一遍字符串。
+const (
+	// AuditActionEdit records a moderator edit. | AuditActionEdit 记录管理员编辑。
+	AuditActionEdit = "message.edit"
+	// AuditActionRecall records a recall. | AuditActionRecall 记录撤回。
+	AuditActionRecall = "message.recall"
+	// AuditActionPin records a pin. | AuditActionPin 记录置顶。
+	AuditActionPin = "message.pin"
+	// AuditActionUnpin records an unpin. | AuditActionUnpin 记录取消置顶。
+	AuditActionUnpin = "message.unpin"
+)
+
+// Catalog families carried in Event.Detail[DetailCatalog]. | Event.Detail[DetailCatalog] 携带的目录族。
+const (
+	// CatalogFamilyType names the message-type catalog. | CatalogFamilyType 命名消息类型目录。
+	CatalogFamilyType = "type"
+)
+
 // Event is one realtime notification. It carries no message body: receivers re-read what they are
 // allowed to see through the service, so a stale or leaked event can never become a data leak. |
 // Event 是一条实时通知。它不携带消息正文：接收方通过服务重新读取自己有权看到的内容，

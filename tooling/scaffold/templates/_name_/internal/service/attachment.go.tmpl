@@ -60,6 +60,13 @@ type AttachmentService struct {
 	notify NoticeWriter
 }
 
+// Attachment storage backends accepted by message.attachment_store. | message.attachment_store
+// 接受的附件存储后端。
+const (
+	attachmentStoreLocal = "local"
+	attachmentStoreRedis = "redis"
+)
+
 // NewAttachmentService assembles the attachment domain over the project's metadata store and the
 // configured blob backend. | NewAttachmentService 在项目元数据存储与配置的字节后端之上装配附件域。
 func NewAttachmentService(store attachments.Store, cfg *config.Config, log *ydlog.Logger, redisClient goredis.UniversalClient) (*AttachmentService, error) {
@@ -70,7 +77,7 @@ func NewAttachmentService(store attachments.Store, cfg *config.Config, log *ydlo
 		return nil, errs.Wrap(attachments.ErrUnavailable, ErrAttachmentUnavailable)
 	}
 	dir := defaultAttachmentDir
-	mode := "local"
+	mode := attachmentStoreLocal
 	prefix := redisstore.DefaultPrefix
 	options := attachments.DefaultOptions()
 	if cfg != nil {
@@ -96,13 +103,13 @@ func NewAttachmentService(store attachments.Store, cfg *config.Config, log *ydlo
 
 	var blobs attachments.BlobStore
 	switch mode {
-	case "local":
+	case attachmentStoreLocal:
 		fileStore, err := filestore.New(dir)
 		if err != nil {
 			return nil, errs.WrapDetail(err, ErrAttachmentUnavailable, "dir=%[1]q | 目录=%[1]q", dir)
 		}
 		blobs = fileStore
-	case "redis":
+	case attachmentStoreRedis:
 		if redisClient == nil {
 			return nil, errs.Detail(ErrAttachmentUnavailable, "redis is unavailable | Redis 不可用")
 		}

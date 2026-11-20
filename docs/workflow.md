@@ -15,7 +15,7 @@ yd 项目只是在它之上提供了页面、JSON API、权限守卫、配置装
 - **BPMN 2.0 可执行子集**：开始/结束/终止结束事件、用户任务、服务任务、排他/并行/包容网关、
   事件网关、中间定时捕获事件与消息捕获事件、多令牌并行、顺序流条件、默认流、BPMN DI 坐标。
 - **中国式审批语义**：或签、会签、票签（票数或百分比阈值）、顺序审批、动态加签/减签、转办、委派、
-  签收、抢单、退回、撤回到开始、超时催办与催办上限。
+  签收、抢单、退回（含退回发起人）、超时催办与催办上限。
 - **多版本定义**：草稿可反复保存，发布后版本只读；实例绑定发起时发布的版本，升级定义不影响在途实例。
 - **自动审批**：按分类、角色、用户、流程组、事件名或变量表达式匹配，可固定同意/拒绝，也可交给 AI 决策。
 - **AI 决策可插拔**：OpenAI Chat Completions、OpenAI Responses、Anthropic Messages 三种协议；
@@ -107,6 +107,8 @@ Camunda 命名空间里的 `camunda:assignee`、`camunda:candidateUsers`、`camu
 `forms` 以作用域为键：`"start"` 表示发起表单，节点 ID 表示该审批任务收集的字段。
 字段类型闭集：`text`、`textarea`、`number`、`date`、`datetime`、`select`、`checkbox`。
 提交值写入实例变量（`variables`），供网关条件、自动规则与后续表单使用。
+`datetime` 在引擎侧按 `time.RFC3339` 校验；HTML 表单会把选择器的 `YYYY-MM-DDTHH:MM[:SS]`
+归一化为 UTC RFC 3339 再提交，JSON API 调用方应直接使用 RFC 3339（或等价的 UTC 时间）。
 
 表达式是**安全的自研递归下降求值器**，不是 JavaScript，也不使用 `eval`：
 
@@ -142,23 +144,30 @@ Camunda 命名空间里的 `camunda:assignee`、`camunda:candidateUsers`、`camu
 
 - 创建定义 → 创建草稿版本 → 设计器保存草稿 → 发布版本。
 - 发布后定义状态变为 `published`，`current_version` 指向该版本；再次修改必须新建草稿。
-- 删除已被实例引用的定义会被拒绝（`ErrDefinitionInUse`），不会级联删除历史实例。
+- 删除已被实例引用的定义会被拒绝（`ErrDefinitionPublished`），不会级联删除历史实例。
 
 ### 4.2 实例
 
-状态：`running` → `completed` / `rejected` / `withdrawn` / `terminated`。
+状态只有 `running` → `completed` / `withdrawn` / `terminated`；`rejected` 是**结果**（`outcome`），
+不是独立状态：驳回会按节点策略以 `completed` + `outcome=rejected` 或 `terminated` 结束。
+`outcome` 取 `approved`、`rejected`、`withdrawn` 或 `terminated`。
 
-- **撤回**：发起人在 `workflow.withdraw_window` 内可撤回运行中的实例；管理员不受窗口限制。
+- **撤回**：发起人在 `workflow.withdraw_window` 内可撤回运行中的实例；设计里的
+  `settings.withdraw_window` 会覆盖配置默认值；管理员不受窗口限制。
 - **终止**：`workflow:admin` 可随时终止，所有未完成任务被取消并记录原因。
-- **退回**：审批人可把流程退回到设计中的上游节点；只允许退回可达节点。
+- **退回**：审批人可把流程退回到实例已访问过的用户任务或发起人；未访问过的节点不可作为目标。
 - **转办**：任务所有权永久转移给目标用户。
 - **委派**：目标用户处理完成后，任务回到原处理人（`delegated_from`）。
-- **加签/减签**：在当前节点增加或移除审批人；减签不能移除自己或最后一个存活审批人。
+- **加签/减签**：加签在当前节点增加审批人；减签只能取消**同一令牌**下仍处于 `queued`/`pending`/`claimed`
+  的任务，已 `completed`/`cancelled` 的任务不可移除，最后一条未结束任务也不可移除。发起人、管理员与
+  任务创建者可减签他人；普通审批人只能减签自己创建或自己拥有的任务。减签后引擎会重新计算节点完成度，
+  授权减签可以结束节点，未授权减签不能绕过会签。
 
 ### 4.3 任务
 
-状态：`pending`（未签收）→ `claimed`（已签收）→ `completed` / `cancelled`。
+状态：`pending`（未签收）→ `claimed`（已签收）→ `completed` / `cancelled`；顺序审批中还有 `queued`。
 门户任务抽屉仍只对任务参与者或实例发起人可见；后台任务抽屉对持有 `workflow:read` 的账号可见，但动作表单只在持有 `workflow:admin` 时渲染。
+任务抽屉展示当前任务、节点表单、**审批意见**与动作表单；完整的事件时间线在实例抽屉中。
 所有动作都校验租户、参与者身份与任务状态，冲突返回 409，权限不足返回 403，
 跨租户与不存在一律返回 404。
 
@@ -243,6 +252,8 @@ workflow:
 - **安全**：只接受 JSON 响应中的 `decision` 与 `confidence`，未知值按 `none` 处理；
   API key 只放请求头，绝不进入日志或错误文案。
 - **失败关闭**：HTTP 错误、超时、非法 JSON、低置信度都保持人工审批，不会自动通过。
+- **阈值两处生效**：`workflow.ai.min_confidence` 同时用于决策器过滤与引擎对缓存结论的复检；
+  留空或越界（≤0 或 >1）时按引擎默认值 `0.7` 归一化。
 
 ## 9. 权限
 
@@ -264,15 +275,20 @@ workflow:
 ### 10.1 门户
 
 - `/workflow/tasks`：待办、已办、我发起的三个页签；顶部「发起流程」打开抽屉选择已发布流程。
-- 任务抽屉：同意/拒绝、签收、转办、委派、加签/减签、退回、催办与时间线。
-- 实例抽屉：只读展示任务、变量与事件；发起人可在窗口内撤回。
+  通知深链 `/workflow/tasks/{taskID}` 在浏览器顶层导航时 303 到 `/workflow/tasks?instance=...`；
+  htmx 局部请求仍返回任务抽屉片段。
+- 任务抽屉：同意/拒绝、签收、转办、委派、加签/减签、退回、催办、当前任务的表单与审批意见。
+- 实例抽屉：任务列表、变量与事件时间线；发起人可在窗口内撤回，窗口关闭后显示提示；
+  后台变体另可按 `workflow:admin` 终止实例或投递消息信号。
 
 ### 10.2 后台
 
 - `/mgr/workflows`：流程定义工作台；新建、编辑、启停、删除、导入、导出、版本、设计器。
 - `/mgr/workflows/:id/design`：可视化设计器。
 - `/mgr/workflow-groups`：流程组与成员管理。
-- `/mgr/workflow-instances`：实例列表与详情；管理员可终止或投递信号。
+- `/mgr/workflow-instances`：实例列表与详情；管理员可终止、投递信号，或在实例抽屉中发表评论
+  （`POST /mgr/workflow-instances/{id}/comments`；门户对应 `POST /workflow/instances/{id}/comments`，
+  评论对实例全部参与者可见，抽屉只替换评论区块，不重建页面）。
 - 列表统一支持 `q` 与 `status`，定义与实例另支持 `category`；筛选、页签与页码写入 URL，
   列表内变更后仍保持，不再被轮询或分页重置。
 
@@ -283,7 +299,8 @@ workflow:
 - 「连线」进入连线模式：先点源节点，再点目标节点；再次点击退出。
 - 右侧属性面板覆盖节点/连线字段、指派与完成方式、时限与催办、表单字段、自动规则与流程设置。
 - 「校验」在本地检查开始/结束事件、节点名称、审批人、等待事件参数；服务端仍会做完整校验。
-- 「保存」写入草稿；「发布」把当前草稿冻结为只读版本。
+- 「保存」写入草稿；「发布」把当前草稿冻结为只读版本。发布成功后设计器会重新载入，
+  自动打开或克隆一个新草稿；继续停留在已发布版本上保存会得到 409。
 - 未保存时整页离开会被浏览器拦截；语言切换与局部导航会重绘工作区，请先「保存」草稿。
 
 ## 11. JSON API
@@ -299,7 +316,7 @@ workflow:
 | GET/POST | `/api/v1/workflows/definitions/{id}/versions` | 列出版本摘要/新建草稿 |
 | GET/PUT/DELETE | `/api/v1/workflows/versions/{version_id}` | 读取/更新草稿/删除草稿 |
 | POST | `/api/v1/workflows/versions/{version_id}/publish` | 发布版本 |
-| GET | `/api/v1/workflows/export?format=json\|bpmn` | 导出流程包或 BPMN |
+| GET | `/api/v1/workflows/export?format=json\|bpmn` | 导出流程包；`format=bpmn` 必须带 `version={version_id}` |
 | POST | `/api/v1/workflows/import?format=json\|bpmn` | 导入 JSON 包（默认）或 BPMN 2.0 XML |
 | GET/POST | `/api/v1/workflows/groups` | 列出/创建流程组 |
 | GET/PUT/DELETE | `/api/v1/workflows/groups/{id}` | 读取/更新/删除流程组 |
@@ -310,35 +327,44 @@ workflow:
 | POST | `/api/v1/workflow-instances/{id}/withdraw` | 撤回 |
 | POST | `/api/v1/workflow-instances/{id}/terminate` | 终止 |
 | POST | `/api/v1/workflow-instances/{id}/signal` | 投递消息信号 |
+| POST | `/api/v1/workflow-instances/{id}/comments` | 添加实例评论（`{"body":"..."}`） |
 | GET | `/api/v1/workflow-tasks` | 列出任务 |
 | GET | `/api/v1/workflow-tasks/{id}` | 任务详情 |
 | POST | `/api/v1/workflow-tasks/{id}/{action}` | 任务动作（claim/approve/transfer/delegate/add-sign/remove-sign/return/remind） |
 | GET | `/api/portal/v1/workflows/definitions` | 门户可发起的流程目录 |
-| GET/POST | `/api/portal/v1/workflows/instances` | 我发起的实例/发起流程 |
+| GET/POST | `/api/portal/v1/workflows/instances` | 我发起的实例/发起流程；`category` 已弃用并被忽略，实例分类始终取自定义分类；`form_data` 只接受发起表单声明的字段与 `form.*` |
 | GET | `/api/portal/v1/workflows/instances/{id}` | 我的实例详情 |
 | POST | `/api/portal/v1/workflows/instances/{id}/withdraw` | 撤回自己的实例 |
+| POST | `/api/portal/v1/workflows/instances/{id}/comments` | 为自己的实例添加评论 |
 | GET | `/api/portal/v1/workflows/tasks` | 我的任务 |
 | GET | `/api/portal/v1/workflows/tasks/{id}` | 我的任务详情 |
 | POST | `/api/portal/v1/workflows/tasks/{id}/{action}` | 处理我的任务 |
 
 列表端点统一接受 `q`、`status`、`page`、`page_size`；定义与实例列表还接受 `category`，
-任务列表还接受 `instance` 与 `tab`，与 HTML 工作台的筛选保持一致。实例列表只返回列表字段，
-不携带 `variables` / `visited_nodes` / `current_nodes`；完整变量经实例详情读取。
+任务列表还接受 `instance` 与 `tab`。HTML 工作台只提供各自的筛选：定义列表接受 `q`/`status`/`category`，
+实例列表接受 `q`/`status`/`category`，门户任务页接受 `tab`/`q`/`instance`/`page`。
+实例列表只返回列表字段，不携带 `variables` / `visited_nodes` / `current_nodes`；完整变量经实例详情读取。
 版本列表同样只返回 `VersionSummary`（ID、版本号、状态、发布时间与说明），设计经单版本读取。
 
-任务动作的正文形如：
+任务动作的路径词决定动作；当路径词是通用的 `action` 时，请求体里的 `action`（或 `decision`）
+决定具体动作，未知动作以 422 失败关闭。正文形如：
 
 ```json
 { "action": "approve", "comment": "同意", "form_data": { "amount": 1200 } }
 ```
 
+也可以直接使用具体路径词：`POST /api/v1/workflow-tasks/{id}/approve`、`/reject`、`/claim`、
+`/transfer`、`/delegate`、`/add-sign`、`/remove-sign`、`/return`、`/remind`。
+
 ## 12. 导入导出
 
-- **JSON 包**：`WorkflowBundle` 包含定义、版本与设计，带校验和；导入可选择覆盖或跳过已存在版本。
+- **JSON 包**：`WorkflowBundle` 包含定义、版本与设计，带校验和。导入没有「覆盖/跳过」开关：
+  同一版本号且校验和相同时跳过；校验和不同的**草稿**会被导入内容覆盖；校验和不同的**已发布**版本
+  返回冲突。
 - **BPMN 2.0 XML**：带 BPMN DI 坐标；支持 `bpmn:` 标准元素与 Camunda 扩展属性；YD 扩展字段写在
   `extensionElements` 的同名 JSON 中，导入时可无损往返。
 - **幂等**：同一校验和重复导入返回成功并标记跳过，不会产生重复版本。
-- **冲突**：导入已发布版本的相同 key 会返回冲突；需显式选择新建定义或新版本。
+- **冲突**：已发布版本内容不同会返回冲突；需要新内容时请新建版本号或先创建新草稿。
 
 ## 13. 配置
 
@@ -415,11 +441,12 @@ go build ./... && go vet ./... && go test ./... -race
 
 ## 16. 常见问题
 
-**发起页看不到流程？** 定义必须处于 `published` 状态且有已发布版本；`workflow:use` 与
-`workflow.available` 都要为真。
+**发起页看不到流程？** 定义必须处于 `published` 状态且有已发布版本，当前账号必须持有 `workflow:use`。
+流程引擎是否可用由存储打开结果决定，没有 `workflow.available` 配置键。
 
-**设计器保存失败？** 先点「校验」查看本地问题；服务端会返回具体节点与字段。发布后版本只读，
-需要新建草稿再改。
+**设计器保存失败？** 先点「校验」查看本地问题：本地校验只覆盖开始/结束事件、节点名称、审批人、
+等待事件参数，**不会**检查自动规则与表单字段键的语义问题；服务端校验覆盖规则、表单与图结构，
+并返回具体节点与字段路径。发布后版本只读，需要新建草稿再改。
 
 **审批人收不到待办？** 检查指派类型与值：`user` 用用户 ID，`role` 用角色名，`group` 用流程组 key；
 角色成员变化后新任务按最新成员解析，已创建任务不会自动改派。

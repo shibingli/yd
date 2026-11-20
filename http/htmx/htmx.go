@@ -26,6 +26,18 @@ const (
 	headerHistoryRestore = "HX-History-Restore-Request"
 )
 
+// Request types carried by HX-Request-Type. | HX-Request-Type 携带的请求类型。
+const (
+	// RequestTypePartial means only the target region is swapped. | RequestTypePartial 表示只替换目标区域。
+	RequestTypePartial = "partial"
+	// RequestTypeFull means the target is body or hx-select produced a whole-page swap. |
+	// RequestTypeFull 表示目标为 body，或 hx-select 产生了整页交换。
+	RequestTypeFull = "full"
+)
+
+// headerTrue is the header value that means a boolean request header is set. | headerTrue 是布尔请求头为真的取值。
+const headerTrue = "true"
+
 // headerValue returns the value of the request header; it returns an empty string when r is nil. | headerValue 返回请求头的值；r 为 nil 时返回空串。
 func headerValue(r *http.Request, name string) string {
 	if r == nil {
@@ -36,7 +48,7 @@ func headerValue(r *http.Request, name string) string {
 
 // headerIsTrue reports whether the request header is "true" (case-insensitive, tolerating leading and trailing whitespace). | headerIsTrue 报告请求头是否为 "true"（大小写不敏感，容忍首尾空白）。
 func headerIsTrue(r *http.Request, name string) bool {
-	return strings.EqualFold(strings.TrimSpace(headerValue(r, name)), "true")
+	return strings.EqualFold(strings.TrimSpace(headerValue(r, name)), headerTrue)
 }
 
 // IsRequest reports whether the request was issued by Htmx (HX-Request: true). | IsRequest 报告请求是否由 Htmx 发起（HX-Request: true）。
@@ -75,5 +87,5 @@ func IsHistoryRestore(r *http.Request) bool { return headerIsTrue(r, headerHisto
 //
 // An ordinary Htmx request (one that carries no HX-Request-Type) is treated as a fragment, while "full" is treated as a whole page. | 普通 Htmx 请求（未携带 HX-Request-Type）按片段处理，"full" 则按整页处理。
 func IsPartial(r *http.Request) bool {
-	return IsRequest(r) && RequestType(r) != "full"
+	return IsRequest(r) && RequestType(r) != RequestTypeFull
 }

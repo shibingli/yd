@@ -54,8 +54,9 @@
 </div>
 <div class="yd-stack">
   <dl class="yd-detail-list">
-    <div><dt>{{ tr "field.status" }}</dt><dd>{{ template "partials/workflows/task_badge" .Task.Status }}</dd></div>
+    <div><dt>{{ tr "field.status" }}</dt><dd>{{ template "partials/workflows/task_badge" (dict "Status" .Task.Status "Badges" .WorkflowTaskBadges) }}</dd></div>
     <div><dt>{{ tr "workflow.field.due" }}</dt><dd>{{ if .Task.DueAt.IsZero }}—{{ else }}{{ .Task.DueAt.Format "2006-01-02 15:04" }}{{ end }}</dd></div>
+    <div><dt>{{ tr "workflow.field.remind_count" }}</dt><dd>{{ if gt .Task.MaxRemind 0 }}{{ tr "workflow.field.remind_progress" .Task.RemindCount .Task.MaxRemind }}{{ else }}{{ .Task.RemindCount }}{{ end }}</dd></div>
     {{- with .Task.OriginalAssigneeName }}<div><dt>{{ tr "workflow.field.delegated_from" }}</dt><dd>{{ . }}</dd></div>{{ end }}
     {{- with .Task.Comment }}<div><dt>{{ tr "workflow.field.comment" }}</dt><dd>{{ . }}</dd></div>{{ end }}
   </dl>
@@ -64,7 +65,8 @@
   <form class="yd-form" method="post" action="{{ .BasePath }}/{{ .Task.ID }}/claim"
         data-yd-confirm="{{ tr "confirm.workflow_claim" }}"
         hx-post="{{ .BasePath }}/{{ .Task.ID }}/claim" hx-target="#yd-workspace" hx-swap="innerMorph"
-        hx-status:409="target:#yd-drawer-errors swap:innerHTML" hx-status:403="target:#yd-drawer-errors swap:innerHTML"
+        hx-status:401="target:#yd-drawer-errors swap:innerHTML" hx-status:403="target:#yd-drawer-errors swap:innerHTML"
+        hx-status:404="target:#yd-drawer-errors swap:innerHTML" hx-status:409="target:#yd-drawer-errors swap:innerHTML"
         hx-status:422="target:#yd-drawer-errors swap:innerHTML">
     {{template "components.form.actions" (dict "SubmitLabel" (tr "workflow.task.claim") "SubmitKey" "workflow.task.claim" "NoCancel" true)}}
   </form>
@@ -76,14 +78,17 @@
     <form class="yd-form" method="post" action="{{ .BasePath }}/{{ .Task.ID }}/action"
           data-yd-confirm="{{ tr "confirm.workflow_decision" }}"
           hx-post="{{ .BasePath }}/{{ .Task.ID }}/action" hx-target="#yd-workspace" hx-swap="innerMorph"
+          hx-status:401="target:#yd-drawer-errors swap:innerHTML"
+          hx-status:403="target:#yd-drawer-errors swap:innerHTML"
+          hx-status:404="target:#yd-drawer-errors swap:innerHTML"
           hx-status:409="target:#yd-drawer-errors swap:innerHTML"
           hx-status:422="target:#yd-drawer-errors swap:innerHTML">
       {{template "components.form.select" (dict
         "ID" "yd-workflow-decision" "Name" "decision"
         "Label" (tr "workflow.field.decision") "LabelKey" "workflow.field.decision" "Required" true
         "Options" (list
-          (dict "Value" "approve" "Label" (tr "workflow.decision.approve") "Key" "workflow.decision.approve" "Selected" true)
-          (dict "Value" "reject" "Label" (tr "workflow.decision.reject") "Key" "workflow.decision.reject")))}}
+          (dict "Value" .DecisionApprove "Label" (tr "workflow.decision.approve") "Key" "workflow.decision.approve" "Selected" true)
+          (dict "Value" .DecisionReject "Label" (tr "workflow.decision.reject") "Key" "workflow.decision.reject")))}}
       {{template "components.form.textarea" (dict
         "ID" "yd-workflow-task-comment" "Name" "comment" "Rows" 3
         "Label" (tr "workflow.field.comment") "LabelKey" "workflow.field.comment" "MaxLength" 2000)}}
@@ -94,13 +99,16 @@
   </section>
   {{- end }}
 
-  {{- if or .CanSign .CanReturn .CanDelegate .CanRemind }}
+  {{- if or .CanSign .CanReturn .CanDelegate .CanTransfer .CanRemind }}
   <section class="yd-section" aria-labelledby="yd-workflow-task-more">
     <h3 class="yd-section__title" id="yd-workflow-task-more">{{ tr "workflow.task.more" }}</h3>
     <div class="yd-stack">
-      {{- if .CanDelegate }}
+      {{- if .CanTransfer }}
       <form class="yd-form" method="post" action="{{ .BasePath }}/{{ .Task.ID }}/transfer"
             hx-post="{{ .BasePath }}/{{ .Task.ID }}/transfer" hx-target="#yd-workspace" hx-swap="innerMorph"
+            hx-status:401="target:#yd-drawer-errors swap:innerHTML"
+            hx-status:403="target:#yd-drawer-errors swap:innerHTML"
+            hx-status:404="target:#yd-drawer-errors swap:innerHTML"
             hx-status:409="target:#yd-drawer-errors swap:innerHTML"
             hx-status:422="target:#yd-drawer-errors swap:innerHTML"
             data-yd-confirm="{{ tr "confirm.workflow_transfer" }}">
@@ -112,8 +120,13 @@
           "Label" (tr "workflow.field.comment") "LabelKey" "workflow.field.comment" "MaxLength" 2000)}}
         {{template "components.form.actions" (dict "SubmitLabel" (tr "workflow.task.transfer") "SubmitKey" "workflow.task.transfer")}}
       </form>
+      {{- end }}
+      {{- if .CanDelegate }}
       <form class="yd-form" method="post" action="{{ .BasePath }}/{{ .Task.ID }}/delegate"
             hx-post="{{ .BasePath }}/{{ .Task.ID }}/delegate" hx-target="#yd-workspace" hx-swap="innerMorph"
+            hx-status:401="target:#yd-drawer-errors swap:innerHTML"
+            hx-status:403="target:#yd-drawer-errors swap:innerHTML"
+            hx-status:404="target:#yd-drawer-errors swap:innerHTML"
             hx-status:409="target:#yd-drawer-errors swap:innerHTML"
             hx-status:422="target:#yd-drawer-errors swap:innerHTML"
             data-yd-confirm="{{ tr "confirm.workflow_delegate" }}">
@@ -130,6 +143,9 @@
       {{- if .CanSign }}
       <form class="yd-form" method="post" action="{{ .BasePath }}/{{ .Task.ID }}/add-sign"
             hx-post="{{ .BasePath }}/{{ .Task.ID }}/add-sign" hx-target="#yd-workspace" hx-swap="innerMorph"
+            hx-status:401="target:#yd-drawer-errors swap:innerHTML"
+            hx-status:403="target:#yd-drawer-errors swap:innerHTML"
+            hx-status:404="target:#yd-drawer-errors swap:innerHTML"
             hx-status:409="target:#yd-drawer-errors swap:innerHTML"
             hx-status:422="target:#yd-drawer-errors swap:innerHTML"
             data-yd-confirm="{{ tr "confirm.workflow_add_sign" }}">
@@ -151,6 +167,9 @@
       {{- if .SiblingOptions }}
       <form class="yd-form" method="post" action="{{ .BasePath }}/{{ .Task.ID }}/remove-sign"
             hx-post="{{ .BasePath }}/{{ .Task.ID }}/remove-sign" hx-target="#yd-workspace" hx-swap="innerMorph"
+            hx-status:401="target:#yd-drawer-errors swap:innerHTML"
+            hx-status:403="target:#yd-drawer-errors swap:innerHTML"
+            hx-status:404="target:#yd-drawer-errors swap:innerHTML"
             hx-status:409="target:#yd-drawer-errors swap:innerHTML"
             hx-status:422="target:#yd-drawer-errors swap:innerHTML"
             data-yd-confirm="{{ tr "confirm.workflow_remove_sign" }}">
@@ -164,6 +183,9 @@
       {{- if .CanReturn }}
       <form class="yd-form" method="post" action="{{ .BasePath }}/{{ .Task.ID }}/return"
             hx-post="{{ .BasePath }}/{{ .Task.ID }}/return" hx-target="#yd-workspace" hx-swap="innerMorph"
+            hx-status:401="target:#yd-drawer-errors swap:innerHTML"
+            hx-status:403="target:#yd-drawer-errors swap:innerHTML"
+            hx-status:404="target:#yd-drawer-errors swap:innerHTML"
             hx-status:409="target:#yd-drawer-errors swap:innerHTML"
             hx-status:422="target:#yd-drawer-errors swap:innerHTML"
             data-yd-confirm="{{ tr "confirm.workflow_return" }}">
@@ -178,6 +200,9 @@
       {{- if .CanRemind }}
       <form class="yd-form" method="post" action="{{ .BasePath }}/{{ .Task.ID }}/remind"
             hx-post="{{ .BasePath }}/{{ .Task.ID }}/remind" hx-target="#yd-workspace" hx-swap="innerMorph"
+            hx-status:401="target:#yd-drawer-errors swap:innerHTML"
+            hx-status:403="target:#yd-drawer-errors swap:innerHTML"
+            hx-status:404="target:#yd-drawer-errors swap:innerHTML"
             hx-status:409="target:#yd-drawer-errors swap:innerHTML"
             hx-status:422="target:#yd-drawer-errors swap:innerHTML"
             data-yd-confirm="{{ tr "confirm.workflow_remind" }}">
@@ -190,22 +215,8 @@
   </section>
   {{- end }}
 
-  <section class="yd-section" aria-labelledby="yd-workflow-task-comments">
-    <h3 class="yd-section__title" id="yd-workflow-task-comments">{{ tr "workflow.instance.comments" }}</h3>
-    <ul class="yd-timeline">
-      {{ range .Comments }}
-      <li class="yd-timeline__item">
-        <span class="yd-timeline__dot" aria-hidden="true"></span>
-        <div>
-          <p class="yd-timeline__body">{{ .Body }}</p>
-          <p class="yd-timeline__meta">{{ .AuthorName }} · {{ .CreatedAt.Format "2006-01-02 15:04" }}</p>
-        </div>
-      </li>
-      {{ else }}
-      <li class="yd-timeline__item">{{ tr "workflow.instance.no_comments" }}</li>
-      {{ end }}
-    </ul>
-  </section>
+  {{ template "partials/workflows/comments" (dict
+    "InstanceID" .Instance.ID "Comments" .Comments "BasePath" .BasePath "CanComment" .CanComment) }}
 </div>
 {{- end -}}
 {{ template "partials/workflows/task" . }}

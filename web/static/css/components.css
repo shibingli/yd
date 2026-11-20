@@ -3898,6 +3898,18 @@
     background: var(--color-surface-muted);
   }
 
+  /* "Load earlier" bar stays at the top of the scroll container while the user pages back. |
+     「加载更早」栏在用户回看时固定在滚动容器顶部。 */
+  .yd-msg-thread__earlier {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    display: flex;
+    justify-content: center;
+    padding-block: 0.25rem;
+    background: var(--color-surface-muted);
+  }
+
   .yd-msg-thread__empty {
     margin: auto;
   }

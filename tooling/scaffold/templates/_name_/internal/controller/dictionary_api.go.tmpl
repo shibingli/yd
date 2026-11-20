@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"strings"
 
-	"{{ .Module }}/internal/service"
 	"{{ .YdModule }}/dictionary"
 	"{{ .YdModule }}/security/auth"
 	"{{ .YdxModule }}/log"
@@ -481,11 +480,15 @@ func (c *Controller) dictionaryAPIAvailable(ctx *router.Ctx) bool {
 	if c.DictionariesAvailable() {
 		return true
 	}
-	message := service.ErrDictionaryUnavailable.Error()
+	// 详细原因只写日志；响应得到固定文案，不会泄露 DSN、路径或驱动报文。 |
+	// The detailed cause stays in the log; the response gets fixed copy and never leaks a DSN,
+	// path or driver message.
 	if c.dictionaryErr != nil {
-		message = c.dictionaryErr.Error()
+		c.log.Warn("dictionary service unavailable | 数据字典服务不可用", log.Err(c.dictionaryErr))
 	}
-	_ = ctx.JSON(http.StatusServiceUnavailable, map[string]any{"error": message})
+	_ = ctx.JSON(http.StatusServiceUnavailable, map[string]any{
+		"error": "数据字典服务暂不可用 | The dictionary service is temporarily unavailable",
+	})
 	return false
 }
 

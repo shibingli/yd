@@ -79,6 +79,12 @@ func (s *Service) authorizeAttachment(ctx context.Context, actor Actor, attachme
 		if err != nil {
 			continue
 		}
+		// 撤回的消息是内容墓碑，其附件同样属于被撤回的内容：非管理员即使仍是会话成员也不得下载。
+		// A recalled message is a content tombstone and its attachments are part of that content: a
+		// non-moderator must not download them even while still being a member of the conversation.
+		if msg.Recalled() && !actor.Manage {
+			continue
+		}
 		members, err := s.store.ListMembers(ctx, actor.TenantID, msg.ConversationID)
 		if err != nil {
 			return errs.Wrap(err, ErrUnavailable)

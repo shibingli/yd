@@ -7,6 +7,7 @@ package middleware
 
 import (
 	"strconv"
+	"strings"
 
 	"{{ .YdxModule }}/router"
 )
@@ -97,8 +98,14 @@ func Security(options ...SecurityOptions) router.Middleware {
 		c.SetHeader("Cross-Origin-Opener-Policy", "same-origin")
 
 		// HSTS 只在 TLS 上写入：明文 HTTP 上声明 HSTS 会被浏览器忽略，还会误导运维以为已经生效。
-		// HSTS is written on TLS only: over plain HTTP a browser ignores it and operations would wrongly believe it is in effect.
-		if !o.DisableHSTS && c.IsTLS() {
+		// TLS 可能终止在反向代理：X-Forwarded-Proto 由代理写入，伪造它只会让浏览器在明文连接上忽略
+		// 该头，不会造成额外风险，因此这里无需可信代理判断。 |
+		// HSTS is written on TLS only: over plain HTTP a browser ignores it and operations would wrongly believe
+		// it is in effect. TLS may terminate at a reverse proxy: X-Forwarded-Proto is written by the proxy, and
+		// spoofing it only makes a browser ignore the header on a plaintext connection, so no trusted-proxy
+		// decision is needed here.
+		secure := c.IsTLS() || strings.EqualFold(strings.TrimSpace(c.Header("X-Forwarded-Proto")), "https")
+		if !o.DisableHSTS && secure {
 			c.SetHeader("Strict-Transport-Security", "max-age="+strconv.Itoa(hstsMaxAge)+"; includeSubDomains")
 		}
 

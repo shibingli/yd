@@ -58,18 +58,69 @@
 
   var LABELS = readLabels();
 
-  // NODE_KEYS maps a node type onto its catalogue slug. | NODE_KEYS 把节点类型映射到目录键。
-  var NODE_KEYS = {
-    start: 'label_start',
-    end: 'label_end',
-    user: 'label_approval',
-    service: 'label_service',
-    exclusive: 'label_exclusive',
-    parallel: 'label_parallel',
-    inclusive: 'label_inclusive',
-    catch: 'label_wait',
-    event: 'label_node_event'
+  // NODE_TYPES mirrors the workflow.Node* constants. Node types appear only here; every
+  // comparison, switch case and selector value references this object. |
+  // NODE_TYPES 镜像 workflow.Node* 常量。节点类型只在这里出现一次，其余比较、分支与选择器值都引用本对象。
+  var NODE_TYPES = {
+    START: 'start',
+    END: 'end',
+    USER: 'user',
+    SERVICE: 'service',
+    EXCLUSIVE: 'exclusive',
+    PARALLEL: 'parallel',
+    INCLUSIVE: 'inclusive',
+    CATCH: 'catch',
+    EVENT: 'event'
   };
+
+  // ASSIGNEE_TYPES mirrors the workflow.Assignee* constants. | ASSIGNEE_TYPES 镜像 workflow.Assignee* 常量。
+  var ASSIGNEE_TYPES = {INITIATOR: 'initiator', USER: 'user', ROLE: 'role', GROUP: 'group'};
+
+  // CLAIM_MODES mirrors the workflow.Claim* constants. | CLAIM_MODES 镜像 workflow.Claim* 常量。
+  var CLAIM_MODES = {ASSIGNED: 'assigned', CLAIM: 'claim', GRAB: 'grab'};
+
+  // COMPLETION_MODES mirrors the workflow.Completion* constants. | COMPLETION_MODES 镜像 workflow.Completion* 常量。
+  var COMPLETION_MODES = {ANY: 'any', ALL: 'all', VOTE: 'vote'};
+
+  // THRESHOLD_TYPES mirrors the workflow.Threshold* constants. | THRESHOLD_TYPES 镜像 workflow.Threshold* 常量。
+  var THRESHOLD_TYPES = {COUNT: 'count', PERCENT: 'percent'};
+
+  // REJECT_MODES mirrors the workflow.RejectMode* constants. | REJECT_MODES 镜像 workflow.RejectMode* 常量。
+  var REJECT_MODES = {ANY: 'any', ALL: 'all'};
+
+  // ON_REJECT mirrors the workflow.OnReject* constants. | ON_REJECT 镜像 workflow.OnReject* 常量。
+  var ON_REJECT = {TERMINATE: 'terminate', END: 'end', RETURN_INITIATOR: 'return_initiator'};
+
+  // AUTO_SCOPES and AUTO_EVENTS mirror workflow.AutoScope* and workflow.AutoEvent*. |
+  // AUTO_SCOPES 与 AUTO_EVENTS 镜像 workflow.AutoScope* 与 workflow.AutoEvent* 常量。
+  var AUTO_SCOPES = {CATEGORY: 'category', ROLE: 'role', USER: 'user', GROUP: 'group', EVENT: 'event', VARIABLE: 'variable'};
+  var AUTO_EVENTS = {START: 'start', TASK: 'task'};
+
+  // DECISIONS mirrors the workflow.Decision* constants. | DECISIONS 镜像 workflow.Decision* 常量。
+  var DECISIONS = {APPROVE: 'approve', REJECT: 'reject'};
+
+  // FIELD_TYPES mirrors the form field types accepted by the engine. | FIELD_TYPES 镜像引擎接受的表单字段类型。
+  var FIELD_TYPES = {
+    TEXT: 'text',
+    TEXTAREA: 'textarea',
+    NUMBER: 'number',
+    DATE: 'date',
+    DATETIME: 'datetime',
+    SELECT: 'select',
+    CHECKBOX: 'checkbox'
+  };
+
+  // NODE_KEYS maps a node type onto its catalogue slug. | NODE_KEYS 把节点类型映射到目录键。
+  var NODE_KEYS = {};
+  NODE_KEYS[NODE_TYPES.START] = 'label_start';
+  NODE_KEYS[NODE_TYPES.END] = 'label_end';
+  NODE_KEYS[NODE_TYPES.USER] = 'label_approval';
+  NODE_KEYS[NODE_TYPES.SERVICE] = 'label_service';
+  NODE_KEYS[NODE_TYPES.EXCLUSIVE] = 'label_exclusive';
+  NODE_KEYS[NODE_TYPES.PARALLEL] = 'label_parallel';
+  NODE_KEYS[NODE_TYPES.INCLUSIVE] = 'label_inclusive';
+  NODE_KEYS[NODE_TYPES.CATCH] = 'label_wait';
+  NODE_KEYS[NODE_TYPES.EVENT] = 'label_node_event';
 
   // L reads one catalogue entry, falling back to the English literal when the island is absent
   // (for example a cached older page) and interpolates {name} placeholders. |
@@ -187,6 +238,37 @@
     return prefix + index;
   }
 
+  // nextRuleID returns the first free rule_N identifier. The rules array is the source of truth, so
+  // deleting rule_1 and adding another rule reuses rule_1 instead of colliding with rule_2. |
+  // nextRuleID 返回第一个可用的 rule_N 标识。规则数组是唯一事实来源，删除 rule_1 后再添加会复用
+  // rule_1，而不是与 rule_2 撞号。
+  function nextRuleID(rules) {
+    var taken = {};
+    (rules || []).forEach(function (rule) {
+      if (rule && typeof rule.id === 'string' && rule.id) {
+        taken[rule.id] = true;
+      }
+    });
+    return nextID('rule_', taken);
+  }
+
+  // nextFieldKey returns the first free field_N key in one form scope. Counting fields would hand
+  // out a duplicate key after a middle field is deleted. | nextFieldKey 返回一个表单作用域中第一个
+  // 可用的 field_N 键。按数量取键会在删除中间字段后产生重复键。
+  function nextFieldKey(fields) {
+    var taken = {};
+    (fields || []).forEach(function (field) {
+      if (field && typeof field.key === 'string' && field.key) {
+        taken[field.key] = true;
+      }
+    });
+    var index = 1;
+    while (taken['field_' + index]) {
+      index += 1;
+    }
+    return 'field_' + index;
+  }
+
   function truncate(text, max) {
     text = String(text || '');
     if (text.length <= max) {
@@ -280,7 +362,10 @@
       connect: false,
       connectFrom: null,
       drag: null,
-      note: '',
+      // The server injects the current draft note; starting from an empty string would erase an
+      // existing note on the next save. | 服务端注入当前草稿说明；从空串开始会在下次保存时
+      // 抹掉已有说明。
+      note: root.getAttribute('data-note') || '',
       dirty: false
     };
 
@@ -312,15 +397,15 @@
 
     function boxOf(node) {
       switch (node.type) {
-        case 'start':
-        case 'end':
+        case NODE_TYPES.START:
+        case NODE_TYPES.END:
           return { w: 64, h: 64 };
-        case 'exclusive':
-        case 'parallel':
-        case 'inclusive':
-        case 'event':
+        case NODE_TYPES.EXCLUSIVE:
+        case NODE_TYPES.PARALLEL:
+        case NODE_TYPES.INCLUSIVE:
+        case NODE_TYPES.EVENT:
           return { w: 88, h: 88 };
-        case 'catch':
+        case NODE_TYPES.CATCH:
           return { w: 80, h: 80 };
         default:
           return { w: 176, h: 68 };
@@ -342,7 +427,7 @@
       if (dx === 0 && dy === 0) {
         return center;
       }
-      if (node.type === 'start' || node.type === 'end' || node.type === 'catch') {
+      if (node.type === NODE_TYPES.START || node.type === NODE_TYPES.END || node.type === NODE_TYPES.CATCH) {
         var radius = Math.min(box.w, box.h) / 2;
         var length = Math.sqrt(dx * dx + dy * dy) || 1;
         return { x: center.x + (dx / length) * radius, y: center.y + (dy / length) * radius };
@@ -416,14 +501,14 @@
       });
       group.appendChild(svg('title', {}, [document.createTextNode(node.name || node.id)]));
 
-      if (node.type === 'start' || node.type === 'end') {
+      if (node.type === NODE_TYPES.START || node.type === NODE_TYPES.END) {
         group.appendChild(svg('circle', {
           'class': 'yd-flow__shape yd-flow__shape--' + node.type,
           cx: w / 2,
           cy: h / 2,
           r: w / 2 - 4
         }));
-        if (node.type === 'start') {
+        if (node.type === NODE_TYPES.START) {
           group.appendChild(svg('path', {
             'class': 'yd-flow__glyph',
             d: 'M ' + (w / 2 - 7) + ' ' + (h / 2 - 10) + ' L ' + (w / 2 + 11) + ' ' + (h / 2) + ' L ' + (w / 2 - 7) + ' ' + (h / 2 + 10) + ' Z'
@@ -436,7 +521,7 @@
             r: node.terminate ? 12 : 9
           }));
         }
-      } else if (node.type === 'exclusive' || node.type === 'parallel' || node.type === 'inclusive' || node.type === 'event') {
+      } else if (node.type === NODE_TYPES.EXCLUSIVE || node.type === NODE_TYPES.PARALLEL || node.type === NODE_TYPES.INCLUSIVE || node.type === NODE_TYPES.EVENT) {
         var cx = w / 2;
         var cy = h / 2;
         group.appendChild(svg('polygon', {
@@ -444,13 +529,13 @@
           points: cx + ',4 ' + (w - 4) + ',' + cy + ' ' + cx + ',' + (h - 4) + ' 4,' + cy
         }));
         var glyph;
-        if (node.type === 'exclusive' || node.type === 'event') {
+        if (node.type === NODE_TYPES.EXCLUSIVE || node.type === NODE_TYPES.EVENT) {
           glyph = svg('path', {
             'class': 'yd-flow__glyph',
             d: 'M ' + (cx - 11) + ' ' + (cy - 11) + ' L ' + (cx + 11) + ' ' + (cy + 11) + ' M ' + (cx + 11) + ' ' + (cy - 11) + ' L ' + (cx - 11) + ' ' + (cy + 11)
           });
           group.appendChild(glyph);
-        } else if (node.type === 'parallel') {
+        } else if (node.type === NODE_TYPES.PARALLEL) {
           group.appendChild(svg('path', {
             'class': 'yd-flow__glyph',
             d: 'M ' + (cx - 11) + ' ' + cy + ' L ' + (cx + 11) + ' ' + cy + ' M ' + cx + ' ' + (cy - 11) + ' L ' + cx + ' ' + (cy + 11)
@@ -463,7 +548,7 @@
             r: 11
           }));
         }
-      } else if (node.type === 'catch') {
+      } else if (node.type === NODE_TYPES.CATCH) {
         group.appendChild(svg('circle', {
           'class': 'yd-flow__shape yd-flow__shape--catch',
           cx: w / 2,
@@ -494,13 +579,13 @@
           y: 2,
           width: w - 4,
           height: h - 4,
-          rx: node.type === 'user' ? 12 : 4
+          rx: node.type === NODE_TYPES.USER ? 12 : 4
         }));
         group.appendChild(svg('text', {
           'class': 'yd-flow__badge',
           x: 14,
           y: 20
-        }, [document.createTextNode(node.type === 'user' ? L('label_approval', 'Approval') : L('label_service', 'Service'))]));
+        }, [document.createTextNode(node.type === NODE_TYPES.USER ? L('label_approval', 'Approval') : L('label_service', 'Service'))]));
         group.appendChild(svg('text', {
           'class': 'yd-flow__label',
           x: w / 2,
@@ -680,11 +765,11 @@
         name: nodeLabel(type),
         position: { x: x, y: y }
       };
-      if (type === 'user') {
-        node.assignee = { type: 'initiator' };
-        node.completion = { mode: 'any' };
+      if (type === NODE_TYPES.USER) {
+        node.assignee = { type: ASSIGNEE_TYPES.INITIATOR };
+        node.completion = { mode: COMPLETION_MODES.ANY };
       }
-      if (type === 'catch') {
+      if (type === NODE_TYPES.CATCH) {
         node.wait_kind = 'timer';
         node.wait_for = '1h';
       }
@@ -849,7 +934,7 @@
     function textInput(value, onInput, attrs) {
       var input = el('input', {
         className: 'yd-input',
-        type: (attrs && attrs.type) || 'text',
+        type: (attrs && attrs.type) || FIELD_TYPES.TEXT,
         value: value === null || value === undefined ? '' : String(value)
       });
       input.id = attrs && attrs.id ? attrs.id : nextControlID('yd-flow-input');
@@ -1152,17 +1237,17 @@
         markDirty();
       }, 2)));
 
-      if (node.type === 'user') {
+      if (node.type === NODE_TYPES.USER) {
         renderUserTaskInspector(node);
-      } else if (node.type === 'catch') {
+      } else if (node.type === NODE_TYPES.CATCH) {
         renderCatchInspector(node);
-      } else if (node.type === 'end') {
+      } else if (node.type === NODE_TYPES.END) {
         inspector.appendChild(checkboxInput(node.terminate, L('label_terminate_the_whole_process', 'Terminate the whole process'), function (checked) {
           node.terminate = checked;
           markDirty();
         }));
-      } else if (node.type === 'start') {
-        inspector.appendChild(renderNodeFormEditor(node, 'start'));
+      } else if (node.type === NODE_TYPES.START) {
+        inspector.appendChild(renderNodeFormEditor(node, NODE_TYPES.START));
       }
 
       inspector.appendChild(el('div', { className: 'yd-flow__actions-row' }, [
@@ -1171,45 +1256,45 @@
     }
 
     function renderUserTaskInspector(node) {
-      node.assignee = node.assignee || { type: 'initiator' };
-      node.completion = node.completion || { mode: 'any' };
+      node.assignee = node.assignee || { type: ASSIGNEE_TYPES.INITIATOR };
+      node.completion = node.completion || { mode: COMPLETION_MODES.ANY };
       var assignee = node.assignee;
       var completion = node.completion;
 
       inspector.appendChild(section(L('label_assignees', 'Assignees'), [
         labelled(L('label_assignment', 'Assignment'), selectInput(assignee.type, [
-          { value: 'initiator', label: L('label_initiator', 'Initiator') },
-          { value: 'user', label: L('label_users', 'Users') },
-          { value: 'role', label: L('label_roles', 'Roles') },
-          { value: 'group', label: L('label_workflow_groups', 'Workflow groups') }
+          { value: ASSIGNEE_TYPES.INITIATOR, label: L('label_initiator', 'Initiator') },
+          { value: ASSIGNEE_TYPES.USER, label: L('label_users', 'Users') },
+          { value: ASSIGNEE_TYPES.ROLE, label: L('label_roles', 'Roles') },
+          { value: ASSIGNEE_TYPES.GROUP, label: L('label_workflow_groups', 'Workflow groups') }
         ], function (value) {
           assignee.type = value;
           assignee.values = [];
           markDirty();
           renderInspector();
         })),
-        assignee.type === 'user' ? labelled(L('label_users_2', 'Users'), valueList(assignee.values, (directory.users || []).map(function (user) {
+        assignee.type === NODE_TYPES.USER ? labelled(L('label_users_2', 'Users'), valueList(assignee.values, (directory.users || []).map(function (user) {
           return { value: user.id, label: user.name + ' (' + user.username + ')' };
         }), function (values) {
           assignee.values = values;
           markDirty();
         })) : null,
-        assignee.type === 'role' ? labelled(L('label_roles', 'Roles'), valueList(assignee.values, (directory.roles || []).map(function (role) {
+        assignee.type === ASSIGNEE_TYPES.ROLE ? labelled(L('label_roles', 'Roles'), valueList(assignee.values, (directory.roles || []).map(function (role) {
           return { value: role, label: role };
         }), function (values) {
           assignee.values = values;
           markDirty();
         })) : null,
-        assignee.type === 'group' ? labelled(L('label_groups', 'Groups'), valueList(assignee.values, (directory.groups || []).map(function (group) {
+        assignee.type === ASSIGNEE_TYPES.GROUP ? labelled(L('label_groups', 'Groups'), valueList(assignee.values, (directory.groups || []).map(function (group) {
           return { value: group.key, label: group.name + ' (' + group.key + ')' };
         }), function (values) {
           assignee.values = values;
           markDirty();
         })) : null,
-        labelled(L('label_claim_mode', 'Claim mode'), selectInput(assignee.claim || 'assigned', [
-          { value: 'assigned', label: L('label_assigned_directly', 'Assigned directly') },
-          { value: 'claim', label: L('label_claim_before_acting', 'Claim before acting') },
-          { value: 'grab', label: L('label_grab_first_claimer_wins', 'Grab (first claimer wins)') }
+        labelled(L('label_claim_mode', 'Claim mode'), selectInput(assignee.claim || CLAIM_MODES.ASSIGNED, [
+          { value: CLAIM_MODES.ASSIGNED, label: L('label_assigned_directly', 'Assigned directly') },
+          { value: CLAIM_MODES.CLAIM, label: L('label_claim_before_acting', 'Claim before acting') },
+          { value: CLAIM_MODES.GRAB, label: L('label_grab_first_claimer_wins', 'Grab (first claimer wins)') }
         ], function (value) {
           assignee.claim = value;
           markDirty();
@@ -1217,33 +1302,33 @@
       ]));
 
       inspector.appendChild(section(L('label_completion', 'Completion'), [
-        labelled(L('label_mode', 'Mode'), selectInput(completion.mode || 'any', [
-          { value: 'any', label: L('label_or_sign_any_approver', 'Or-sign (any approver)') },
-          { value: 'all', label: L('label_countersign_everyone', 'Countersign (everyone)') },
-          { value: 'vote', label: L('label_vote_sign_threshold', 'Vote-sign (threshold)') }
+        labelled(L('label_mode', 'Mode'), selectInput(completion.mode || COMPLETION_MODES.ANY, [
+          { value: COMPLETION_MODES.ANY, label: L('label_or_sign_any_approver', 'Or-sign (any approver)') },
+          { value: COMPLETION_MODES.ALL, label: L('label_countersign_everyone', 'Countersign (everyone)') },
+          { value: COMPLETION_MODES.VOTE, label: L('label_vote_sign_threshold', 'Vote-sign (threshold)') }
         ], function (value) {
           completion.mode = value;
           markDirty();
           renderInspector();
         })),
-        completion.mode === 'vote' ? labelled(L('label_threshold_type', 'Threshold type'), selectInput(completion.threshold_type || 'count', [
-          { value: 'count', label: L('label_approval_count', 'Approval count') },
-          { value: 'percent', label: L('label_percentage', 'Percentage') }
+        completion.mode === COMPLETION_MODES.VOTE ? labelled(L('label_threshold_type', 'Threshold type'), selectInput(completion.threshold_type || THRESHOLD_TYPES.COUNT, [
+          { value: THRESHOLD_TYPES.COUNT, label: L('label_approval_count', 'Approval count') },
+          { value: THRESHOLD_TYPES.PERCENT, label: L('label_percentage', 'Percentage') }
         ], function (value) {
           completion.threshold_type = value;
           markDirty();
         })) : null,
-        completion.mode === 'vote' ? labelled(L('label_threshold', 'Threshold'), numberInput(completion.threshold || 1, function (value) {
+        completion.mode === COMPLETION_MODES.VOTE ? labelled(L('label_threshold', 'Threshold'), numberInput(completion.threshold || 1, function (value) {
           completion.threshold = value;
           markDirty();
         }, { min: 0, step: 1 })) : null,
-        completion.mode === 'any' ? null : checkboxInput(completion.sequential, L('label_sequential_one_at_a_time', 'Sequential (one at a time)'), function (checked) {
+        completion.mode === COMPLETION_MODES.ANY ? null : checkboxInput(completion.sequential, L('label_sequential_one_at_a_time', 'Sequential (one at a time)'), function (checked) {
           completion.sequential = checked;
           markDirty();
         }),
-        labelled(L('label_on_rejection', 'On rejection'), selectInput(completion.reject_mode || 'any', [
-          { value: 'any', label: L('label_reject_on_the_first_rejection', 'Reject on the first rejection') },
-          { value: 'all', label: L('label_reject_only_when_all_reject', 'Reject only when all reject') }
+        labelled(L('label_on_rejection', 'On rejection'), selectInput(completion.reject_mode || REJECT_MODES.ANY, [
+          { value: REJECT_MODES.ANY, label: L('label_reject_on_the_first_rejection', 'Reject on the first rejection') },
+          { value: REJECT_MODES.ALL, label: L('label_reject_only_when_all_reject', 'Reject only when all reject') }
         ], function (value) {
           completion.reject_mode = value;
           markDirty();
@@ -1253,9 +1338,9 @@
       inspector.appendChild(section(L('label_routing_and_timing', 'Routing and timing'), [
         labelled(L('label_on_reject', 'On reject'), selectInput(node.on_reject || '', [
           { value: '', label: L('label_default_terminate', 'Default (terminate)') },
-          { value: 'terminate', label: L('label_terminate', 'Terminate') },
-          { value: 'end', label: L('label_end_the_process', 'End the process') },
-          { value: 'return_initiator', label: L('label_return_to_the_initiator', 'Return to the initiator') }
+          { value: ON_REJECT.TERMINATE, label: L('label_terminate', 'Terminate') },
+          { value: ON_REJECT.END, label: L('label_end_the_process', 'End the process') },
+          { value: ON_REJECT.RETURN_INITIATOR, label: L('label_return_to_the_initiator', 'Return to the initiator') }
         ], function (value) {
           node.on_reject = value;
           markDirty();
@@ -1358,14 +1443,14 @@
           field.label = value;
           markDirty();
         }, { placeholder: L('label_label', 'Label'), maxLength: 120 }));
-        row.appendChild(selectInput(field.type || 'text', [
-          { value: 'text', label: L('label_text', 'Text') },
-          { value: 'textarea', label: L('label_long_text', 'Long text') },
-          { value: 'number', label: L('label_number', 'Number') },
-          { value: 'date', label: L('label_date', 'Date') },
-          { value: 'datetime', label: L('label_date_and_time', 'Date and time') },
-          { value: 'select', label: L('label_select', 'Select') },
-          { value: 'checkbox', label: L('label_checkbox', 'Checkbox') }
+        row.appendChild(selectInput(field.type || FIELD_TYPES.TEXT, [
+          { value: FIELD_TYPES.TEXT, label: L('label_text', 'Text') },
+          { value: FIELD_TYPES.TEXTAREA, label: L('label_long_text', 'Long text') },
+          { value: FIELD_TYPES.NUMBER, label: L('label_number', 'Number') },
+          { value: FIELD_TYPES.DATE, label: L('label_date', 'Date') },
+          { value: FIELD_TYPES.DATETIME, label: L('label_date_and_time', 'Date and time') },
+          { value: FIELD_TYPES.SELECT, label: L('label_select', 'Select') },
+          { value: FIELD_TYPES.CHECKBOX, label: L('label_checkbox', 'Checkbox') }
         ], function (value) {
           field.type = value;
           markDirty();
@@ -1384,7 +1469,7 @@
           renderInspector();
         }, 'ghost'));
         block.appendChild(row);
-        if (field.type === 'select') {
+        if (field.type === FIELD_TYPES.SELECT) {
           block.appendChild(labelled(L('label_options_value_label_per_line', 'Options (value|label per line)'), textArea(optionsText(field.options), function (value) {
             field.options = parseOptions(value);
             markDirty();
@@ -1392,7 +1477,7 @@
         }
       });
       block.appendChild(actionButton(L('label_add_field', 'Add field'), function () {
-        fields.push({ key: 'field_' + (fields.length + 1), label: '', type: 'text' });
+        fields.push({ key: nextFieldKey(fields), label: '', type: FIELD_TYPES.TEXT });
         markDirty();
         renderInspector();
       }, 'ghost'));
@@ -1400,7 +1485,7 @@
     }
 
     function renderStartFormEditor() {
-      return renderNodeFormEditor({ id: 'start' }, 'start');
+      return renderNodeFormEditor({ id: NODE_TYPES.START }, NODE_TYPES.START);
     }
 
     // -----------------------------------------------------------------------
@@ -1427,26 +1512,26 @@
             renderInspector();
           }, 'ghost', '', L('label_delete_rule', 'Delete rule'))
         ]));
-        row.appendChild(labelled(L('label_event', 'Event'), selectInput(rule.event || 'task', [
-          { value: 'start', label: L('label_instance_start', 'Instance start') },
-          { value: 'task', label: L('label_task_creation', 'Task creation') }
+        row.appendChild(labelled(L('label_event', 'Event'), selectInput(rule.event || AUTO_EVENTS.TASK, [
+          { value: AUTO_EVENTS.START, label: L('label_instance_start', 'Instance start') },
+          { value: AUTO_EVENTS.TASK, label: L('label_task_creation', 'Task creation') }
         ], function (value) {
           rule.event = value;
           markDirty();
         })));
-        row.appendChild(labelled(L('label_scope', 'Scope'), selectInput(rule.scope || 'variable', [
-          { value: 'category', label: L('label_category', 'Category') },
-          { value: 'role', label: L('label_role', 'Role') },
-          { value: 'user', label: L('label_user', 'User') },
-          { value: 'group', label: L('label_workflow_group', 'Workflow group') },
-          { value: 'event', label: L('label_event_name', 'Event name') },
-          { value: 'variable', label: L('label_variable_expression', 'Variable expression') }
+        row.appendChild(labelled(L('label_scope', 'Scope'), selectInput(rule.scope || AUTO_SCOPES.VARIABLE, [
+          { value: AUTO_SCOPES.CATEGORY, label: L('label_category', 'Category') },
+          { value: AUTO_SCOPES.ROLE, label: L('label_role', 'Role') },
+          { value: AUTO_SCOPES.USER, label: L('label_user', 'User') },
+          { value: AUTO_SCOPES.GROUP, label: L('label_workflow_group', 'Workflow group') },
+          { value: AUTO_SCOPES.EVENT, label: L('label_event_name', 'Event name') },
+          { value: AUTO_SCOPES.VARIABLE, label: L('label_variable_expression', 'Variable expression') }
         ], function (value) {
           rule.scope = value;
           markDirty();
           renderInspector();
         })));
-        if (rule.scope === 'variable') {
+        if (rule.scope === AUTO_SCOPES.VARIABLE) {
           row.appendChild(labelled(L('label_condition', 'Condition'), textInput(rule.condition || '', function (value) {
             rule.condition = value;
             markDirty();
@@ -1461,9 +1546,9 @@
             markDirty();
           })));
         }
-        row.appendChild(labelled(L('label_decision', 'Decision'), selectInput(rule.decision || 'approve', [
-          { value: 'approve', label: L('label_approve', 'Approve') },
-          { value: 'reject', label: L('label_reject', 'Reject') }
+        row.appendChild(labelled(L('label_decision', 'Decision'), selectInput(rule.decision || DECISIONS.APPROVE, [
+          { value: DECISIONS.APPROVE, label: L('label_approve', 'Approve') },
+          { value: DECISIONS.REJECT, label: L('label_reject', 'Reject') }
         ], function (value) {
           rule.decision = value;
           markDirty();
@@ -1480,12 +1565,12 @@
       });
       block.appendChild(actionButton(L('label_add_rule', 'Add rule'), function () {
         design.rules.push({
-          id: nextID('rule_', {}),
+          id: nextRuleID(design.rules),
           name: '',
           enabled: true,
           event: 'task',
           scope: 'variable',
-          decision: 'approve',
+          decision: DECISIONS.APPROVE,
           priority: 0
         });
         markDirty();
@@ -1547,10 +1632,10 @@
     function validateClient() {
       var problems = [];
       var hasStart = design.nodes.some(function (node) {
-        return node.type === 'start';
+        return node.type === NODE_TYPES.START;
       });
       var hasEnd = design.nodes.some(function (node) {
-        return node.type === 'end';
+        return node.type === NODE_TYPES.END;
       });
       if (!hasStart) {
         problems.push(L('label_the_design_needs_a_start_event', 'The design needs a start event'));
@@ -1567,13 +1652,13 @@
           problems.push(L('label_validation_duplicate_node_id', 'Duplicate node id {id}', { id: node.id }));
         }
         ids[node.id] = true;
-        if (node.type === 'user') {
+        if (node.type === NODE_TYPES.USER) {
           var assignee = node.assignee || {};
-          if (assignee.type !== 'initiator' && (!assignee.values || !assignee.values.length)) {
+          if (assignee.type !== ASSIGNEE_TYPES.INITIATOR && (!assignee.values || !assignee.values.length)) {
             problems.push(L('label_validation_node_no_assignee', 'Node {id} has no assignee', { id: node.id }));
           }
         }
-        if (node.type === 'catch') {
+        if (node.type === NODE_TYPES.CATCH) {
           if (node.wait_kind === 'message' && !node.message_name) {
             problems.push(L('label_validation_wait_no_signal', 'Wait event {id} has no signal name', { id: node.id }));
           }
@@ -1633,7 +1718,15 @@
         return false;
       }
       setStatus(L('label_saving', 'Saving…'));
-      return apiRequest('PUT', root.getAttribute('data-save-url'), { design: design, note: state.note }).then(function () {
+      // An empty note is omitted rather than sent as "": the version already carries a note and an
+      // untouched input must not erase it. | 空说明直接省略而不是发送 ""：版本已有说明时，
+      // 未改动的输入不得把它抹掉。
+      var note = String(state.note || '').trim();
+      var payload = { design: design };
+      if (note !== '') {
+        payload.note = note;
+      }
+      return apiRequest('PUT', root.getAttribute('data-save-url'), payload).then(function () {
         state.dirty = false;
         setStatus(L('label_draft_saved', 'Draft saved'), 'ok');
         return true;
@@ -1641,6 +1734,22 @@
         setStatus(err.message, 'error');
         return false;
       });
+    }
+
+    function reloadDesigner() {
+      // A published version is immutable; staying on it would make the next save a 409. Reloading
+      // re-enters the designer route, which opens an existing draft or clones a fresh one. |
+      // 已发布版本不可变；继续停留在该版本上，下一次保存会得到 409。重载会重新进入设计器路由，
+      // 打开现有草稿或克隆一个新草稿。
+      var location = window.location;
+      if (location && typeof location.reload === 'function') {
+        location.reload();
+        return;
+      }
+      var back = root.getAttribute('data-back-url');
+      if (back && location) {
+        location.href = back;
+      }
     }
 
     function publish() {
@@ -1654,6 +1763,7 @@
           apiRequest('POST', root.getAttribute('data-publish-url'), { note: state.note }).then(function () {
             setStatus(L('label_version_published', 'Version published'), 'ok');
             state.dirty = false;
+            reloadDesigner();
           }).catch(function (err) {
             setStatus(err.message, 'error');
           });

@@ -17,7 +17,7 @@
 </div>
 <div class="yd-stack">
   <dl class="yd-detail-list">
-    <div><dt>{{ tr "field.status" }}</dt><dd>{{ template "partials/workflows/instance_badge" (dict "Status" .Instance.Status "Outcome" .Instance.Outcome) }}{{ with .Instance.Outcome }} · {{ template "partials/workflows/outcome_label" . }}{{ end }}</dd></div>
+    <div><dt>{{ tr "field.status" }}</dt><dd>{{ template "partials/workflows/instance_badge" (dict "Status" .Instance.Status "Outcome" .Instance.Outcome "Badges" .WorkflowInstanceBadges "OutcomeBadges" .WorkflowOutcomeBadges) }}{{ with .Instance.Outcome }} · {{ template "partials/workflows/outcome_label" (dict "Outcome" . "Labels" $.WorkflowOutcomeLabels) }}{{ end }}</dd></div>
     {{- with .Instance.BusinessKey }}<div><dt>{{ tr "workflow.field.business_key" }}</dt><dd>{{ . }}</dd></div>{{ end }}
     {{- with .Instance.EndedReason }}<div><dt>{{ tr "workflow.field.reason" }}</dt><dd>{{ . }}</dd></div>{{ end }}
   </dl>
@@ -41,8 +41,8 @@
           <tr class="yd-table__row">
             <td class="yd-table__td">{{ .NodeName }}</td>
             <td class="yd-table__td">{{ if .AssigneeName }}{{ .AssigneeName }}{{ else }}—{{ end }}</td>
-            <td class="yd-table__td">{{ template "partials/workflows/task_badge" .Status }}</td>
-            <td class="yd-table__td">{{ template "partials/workflows/decision_label" .Decision }}</td>
+            <td class="yd-table__td">{{ template "partials/workflows/task_badge" (dict "Status" .Status "Badges" $.WorkflowTaskBadges) }}</td>
+            <td class="yd-table__td">{{ template "partials/workflows/decision_label" (dict "Decision" .Decision "Labels" $.WorkflowDecisionLabels) }}</td>
             <td class="yd-table__td">{{ if .CompletedAt.IsZero }}—{{ else }}{{ .CompletedAt.Format "2006-01-02 15:04" }}{{ end }}</td>
             <td class="yd-table__td yd-table__td--actions">
               <button type="button" class="yd-icon-btn" data-yd-drawer-open aria-label="{{ tr "workflow.instances.detail" }}"
@@ -70,6 +70,9 @@
     </dl>
   </section>
 
+  {{ template "partials/workflows/comments" (dict
+    "InstanceID" .Instance.ID "Comments" .Comments "BasePath" .BasePath "CanComment" .CanComment) }}
+
   <section class="yd-section" aria-labelledby="yd-workflow-instance-timeline">
     <h3 class="yd-section__title" id="yd-workflow-instance-timeline">{{ tr "workflow.instance.timeline" }}</h3>
     <ol class="yd-timeline">
@@ -77,7 +80,7 @@
       <li class="yd-timeline__item">
         <span class="yd-timeline__dot" aria-hidden="true"></span>
         <div>
-          <p class="yd-timeline__title">{{ template "partials/workflows/event_label" .Type }}</p>
+          <p class="yd-timeline__title">{{ template "partials/workflows/event_label" (dict "Type" .Type "Labels" $.WorkflowEventLabels) }}</p>
           {{- with .Message }}<p class="yd-timeline__body">{{ . }}</p>{{ end }}
           <p class="yd-timeline__meta">{{ if .ActorName }}{{ .ActorName }} · {{ end }}{{ .CreatedAt.Format "2006-01-02 15:04" }}</p>
         </div>
@@ -88,13 +91,19 @@
     </ol>
   </section>
 
-  {{- if or .CanWithdraw .CanTerminate .CanSignal }}
+  {{- if or .CanWithdraw .WithdrawExpired .CanTerminate .CanSignal }}
   <section class="yd-section" aria-labelledby="yd-workflow-instance-actions">
     <h3 class="yd-section__title" id="yd-workflow-instance-actions">{{ tr "workflow.instance.actions" }}</h3>
     <div class="yd-stack">
+      {{- if .WithdrawExpired }}
+      <p class="yd-field__hint">{{ tr "workflow.instances.withdraw_expired" }}</p>
+      {{- end }}
       {{- if .CanWithdraw }}
       <form class="yd-form" method="post" action="{{ .BasePath }}/{{ .Instance.ID }}/withdraw"
             hx-post="{{ .BasePath }}/{{ .Instance.ID }}/withdraw" hx-target="#yd-workspace" hx-swap="innerMorph"
+            hx-status:401="target:#yd-drawer-errors swap:innerHTML"
+            hx-status:403="target:#yd-drawer-errors swap:innerHTML"
+            hx-status:404="target:#yd-drawer-errors swap:innerHTML"
             hx-status:409="target:#yd-drawer-errors swap:innerHTML"
             hx-status:422="target:#yd-drawer-errors swap:innerHTML"
             data-yd-confirm="{{ tr "confirm.withdraw_workflow" }}">
@@ -107,6 +116,9 @@
       {{- if .CanTerminate }}
       <form class="yd-form" method="post" action="{{ .BasePath }}/{{ .Instance.ID }}/terminate"
             hx-post="{{ .BasePath }}/{{ .Instance.ID }}/terminate" hx-target="#yd-workspace" hx-swap="innerMorph"
+            hx-status:401="target:#yd-drawer-errors swap:innerHTML"
+            hx-status:403="target:#yd-drawer-errors swap:innerHTML"
+            hx-status:404="target:#yd-drawer-errors swap:innerHTML"
             hx-status:409="target:#yd-drawer-errors swap:innerHTML"
             hx-status:422="target:#yd-drawer-errors swap:innerHTML"
             data-yd-confirm="{{ tr "confirm.terminate_workflow" }}">
@@ -120,6 +132,9 @@
       <form class="yd-form" method="post" action="/mgr/workflow-instances/{{ .Instance.ID }}/signal"
             data-yd-confirm="{{ tr "confirm.workflow_signal" }}"
             hx-post="/mgr/workflow-instances/{{ .Instance.ID }}/signal" hx-target="#yd-workspace" hx-swap="innerMorph"
+            hx-status:401="target:#yd-drawer-errors swap:innerHTML"
+            hx-status:403="target:#yd-drawer-errors swap:innerHTML"
+            hx-status:404="target:#yd-drawer-errors swap:innerHTML"
             hx-status:409="target:#yd-drawer-errors swap:innerHTML"
             hx-status:422="target:#yd-drawer-errors swap:innerHTML">
         {{template "components.form.field" (dict

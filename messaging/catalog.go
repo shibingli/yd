@@ -132,7 +132,7 @@ func (s *Service) CreateType(ctx context.Context, actor Actor, in TypeInput) (Me
 	if err := s.store.CreateType(ctx, t); err != nil {
 		return MessageType{}, errs.Wrap(err, ErrUnavailable)
 	}
-	s.emit(ctx, Event{Type: EventConversationChanged, TenantID: actor.TenantID, ActorID: actor.ID, Detail: map[string]string{"catalog": "type", "key": key}})
+	s.emit(ctx, Event{Type: EventConversationChanged, TenantID: actor.TenantID, ActorID: actor.ID, Detail: map[string]string{DetailCatalog: CatalogFamilyType, DetailKey: key}})
 	return t, nil
 }
 
@@ -156,7 +156,7 @@ func (s *Service) UpdateType(ctx context.Context, actor Actor, key string, in Ty
 	if err := s.store.UpdateType(ctx, current); err != nil {
 		return MessageType{}, errs.Wrap(err, ErrUnavailable)
 	}
-	s.emit(ctx, Event{Type: EventConversationChanged, TenantID: actor.TenantID, ActorID: actor.ID, Detail: map[string]string{"catalog": "type", "key": current.Key}})
+	s.emit(ctx, Event{Type: EventConversationChanged, TenantID: actor.TenantID, ActorID: actor.ID, Detail: map[string]string{DetailCatalog: CatalogFamilyType, DetailKey: current.Key}})
 	return current, nil
 }
 
@@ -183,7 +183,7 @@ func (s *Service) SetTypeArchived(ctx context.Context, actor Actor, key string, 
 	if err := s.store.UpdateType(ctx, current); err != nil {
 		return errs.Wrap(err, ErrUnavailable)
 	}
-	s.emit(ctx, Event{Type: EventConversationChanged, TenantID: actor.TenantID, ActorID: actor.ID, Detail: map[string]string{"catalog": "type", "key": current.Key}})
+	s.emit(ctx, Event{Type: EventConversationChanged, TenantID: actor.TenantID, ActorID: actor.ID, Detail: map[string]string{DetailCatalog: CatalogFamilyType, DetailKey: current.Key}})
 	return nil
 }
 
@@ -209,7 +209,7 @@ func (s *Service) DeleteType(ctx context.Context, actor Actor, key string) error
 	if err := s.store.DeleteType(ctx, actor.TenantID, current.Key); err != nil {
 		return errs.Wrap(err, ErrUnavailable)
 	}
-	s.emit(ctx, Event{Type: EventConversationChanged, TenantID: actor.TenantID, ActorID: actor.ID, Detail: map[string]string{"catalog": "type", "key": current.Key}})
+	s.emit(ctx, Event{Type: EventConversationChanged, TenantID: actor.TenantID, ActorID: actor.ID, Detail: map[string]string{DetailCatalog: CatalogFamilyType, DetailKey: current.Key}})
 	return nil
 }
 
@@ -278,7 +278,7 @@ func (s *Service) CreateTag(ctx context.Context, actor Actor, kind TagKind, in T
 	if err := s.store.CreateTag(ctx, t); err != nil {
 		return Tag{}, errs.Wrap(err, ErrUnavailable)
 	}
-	s.emit(ctx, Event{Type: EventConversationChanged, TenantID: actor.TenantID, ActorID: actor.ID, Detail: map[string]string{"catalog": string(kind), "key": key}})
+	s.emit(ctx, Event{Type: EventConversationChanged, TenantID: actor.TenantID, ActorID: actor.ID, Detail: map[string]string{DetailCatalog: string(kind), DetailKey: key}})
 	return t, nil
 }
 
@@ -306,7 +306,7 @@ func (s *Service) UpdateTag(ctx context.Context, actor Actor, id string, in TagI
 	if err := s.store.UpdateTag(ctx, current); err != nil {
 		return Tag{}, errs.Wrap(err, ErrUnavailable)
 	}
-	s.emit(ctx, Event{Type: EventConversationChanged, TenantID: actor.TenantID, ActorID: actor.ID, Detail: map[string]string{"catalog": string(current.Kind), "key": current.Key}})
+	s.emit(ctx, Event{Type: EventConversationChanged, TenantID: actor.TenantID, ActorID: actor.ID, Detail: map[string]string{DetailCatalog: string(current.Kind), DetailKey: current.Key}})
 	return current, nil
 }
 
@@ -333,7 +333,7 @@ func (s *Service) SetTagArchived(ctx context.Context, actor Actor, id string, ar
 	if err := s.store.UpdateTag(ctx, current); err != nil {
 		return errs.Wrap(err, ErrUnavailable)
 	}
-	s.emit(ctx, Event{Type: EventConversationChanged, TenantID: actor.TenantID, ActorID: actor.ID, Detail: map[string]string{"catalog": string(current.Kind), "key": current.Key}})
+	s.emit(ctx, Event{Type: EventConversationChanged, TenantID: actor.TenantID, ActorID: actor.ID, Detail: map[string]string{DetailCatalog: string(current.Kind), DetailKey: current.Key}})
 	return nil
 }
 
@@ -359,7 +359,7 @@ func (s *Service) DeleteTag(ctx context.Context, actor Actor, id string) error {
 	if err := s.store.DeleteTag(ctx, actor.TenantID, id); err != nil {
 		return errs.Wrap(err, ErrUnavailable)
 	}
-	s.emit(ctx, Event{Type: EventConversationChanged, TenantID: actor.TenantID, ActorID: actor.ID, Detail: map[string]string{"catalog": string(tags[0].Kind), "key": tags[0].Key}})
+	s.emit(ctx, Event{Type: EventConversationChanged, TenantID: actor.TenantID, ActorID: actor.ID, Detail: map[string]string{DetailCatalog: string(tags[0].Kind), DetailKey: tags[0].Key}})
 	return nil
 }
 

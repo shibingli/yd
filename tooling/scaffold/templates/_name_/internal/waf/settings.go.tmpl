@@ -62,6 +62,14 @@ var defaultExcludeArgs = []string{
 	"json.payload",
 }
 
+// wafModeBlock, wafModeDetection and wafModeOff are the config spellings accepted by waf.mode. |
+// wafModeBlock、wafModeDetection 与 wafModeOff 是 waf.mode 接受配置的写法。
+const (
+	wafModeBlock     = "block"
+	wafModeDetection = "detection"
+	wafModeOff       = "off"
+)
+
 // settings is one validated snapshot of the waf.* configuration. | settings 是一份校验后的
 // waf.* 配置快照。
 type settings struct {
@@ -118,11 +126,11 @@ func settingsFrom(cfg *config.Config) (settings, error) {
 	}
 
 	switch strings.ToLower(strings.TrimSpace(cfg.GetString("waf.mode"))) {
-	case "", "block":
+	case "", wafModeBlock:
 		s.mode = ydxwaf.ModeBlock
-	case "detection":
+	case wafModeDetection:
 		s.mode = ydxwaf.ModeDetection
-	case "off":
+	case wafModeOff:
 		s.mode = ydxwaf.ModeOff
 	default:
 		return settings{}, errs.Detail(ErrConfig, "waf.mode must be block, detection or off | waf.mode 必须是 block、detection 或 off")

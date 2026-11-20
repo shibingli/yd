@@ -95,6 +95,7 @@ func (c *Controller) MetricsSocket() router.HandlerFunc {
 			// 子协议与 htmx 的 WebSocket 扩展一致；不声明它，浏览器可能拒绝握手。
 			// The subprotocol matches the htmx WebSocket extension; without it the browser may refuse the handshake.
 			Subprotocols: []string{"htmx"},
+			Options:      websocket.Options{Tracker: wsConnSet},
 			OnOpen: func(conn *websocket.Conn) {
 				go c.pushMetrics(conn, translator, done)
 			},

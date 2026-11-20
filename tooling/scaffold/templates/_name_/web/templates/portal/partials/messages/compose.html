@@ -18,22 +18,21 @@
   while reporting status inside the form; the chip's hidden field belongs to the main form and is therefore submitted
   with it. Attachments likewise preview in the shared dialog.
 
-  数据契约 | Data contract: .Mode .Catalog .DefaultType .Message .Lang。
+  数据契约 | Data contract: .IsEdit、.IsSystem、.Catalog、.DefaultType、.Message、.Lang。
 */}}
 {{- define "portal/partials/messages/compose" -}}
-{{- $mode := .Mode -}}
 {{- $action := "/messages" -}}
-{{- if eq $mode "edit" -}}
+{{- if .IsEdit -}}
   {{- if hasPrefix .Path "/mgr/" -}}
     {{- $action = printf "/mgr/messages/%s" .Message.ID -}}
   {{- else -}}
     {{- $action = printf "/messages/%s" .Message.ID -}}
   {{- end -}}
-{{- else if eq $mode "system" -}}
+{{- else if .IsSystem -}}
   {{- $action = "/mgr/messages/system" -}}
 {{- end -}}
 <div class="yd-drawer__head">
-  <h2 class="yd-section__title">{{ if eq $mode "edit" }}{{ tr "message.edit_title" }}{{ else }}{{ tr "message.announce_title" }}{{ end }}</h2>
+  <h2 class="yd-section__title">{{ if .IsEdit }}{{ tr "message.edit_title" }}{{ else }}{{ tr "message.announce_title" }}{{ end }}</h2>
   <p class="yd-section__hint">{{ tr "message.compose_hint" }}</p>
 </div>
 <form id="yd-compose-form" class="yd-form" method="post" action="{{ $action }}"
@@ -115,19 +114,19 @@
       </span>
       {{- end }}
     </div>
-    {{- if ne $mode "edit" }}
+    {{- if not .IsEdit }}
     <p class="yd-hint">{{ tr "message.upload_hint" }}</p>
     {{- end }}
   </div>
 
   {{- $submitLabel := tr "ui.send" -}}
-  {{- if eq $mode "system"}}{{- $submitLabel = tr "message.publish" -}}
-  {{- else if eq $mode "edit"}}{{- $submitLabel = tr "ui.save" -}}{{- end -}}
+  {{- if .IsSystem}}{{- $submitLabel = tr "message.publish" -}}
+  {{- else if .IsEdit}}{{- $submitLabel = tr "ui.save" -}}{{- end -}}
   {{template "components.form.actions" (dict
     "SubmitLabel" $submitLabel "CancelLabel" (tr "ui.cancel") "CancelKey" "ui.cancel")}}
 </form>
 
-{{- if ne $mode "edit" }}
+{{- if not .IsEdit }}
 <form class="yd-upload" method="post" action="/messages/attachments"
       enctype="multipart/form-data" data-yd-upload-form
       data-yd-upload-status-target="yd-attachment-upload-status"

@@ -36,6 +36,19 @@ var knownGOARCH = map[string]bool{
 	"s390x": true, "wasm": true,
 }
 
+// unsupportedTargets lists GOOS/GOARCH pairs the generated project cannot build today. They are
+// rejected here rather than surfacing as a compiler error deep in a cross-build: ydx/nodeid
+// compares a 32-bit Statfs type with a 64-bit magic value on 32-bit Linux, and modernc.org/sqlite
+// has no implementation for the mips targets. | unsupportedTargets 列出生成本项目当前无法构建的
+// GOOS/GOARCH 组合。这里提前拒绝，而不是让交叉编译在深处报编译器错误：ydx/nodeid 在 32 位 Linux
+// 上把 32 位 Statfs 类型与 64 位魔数比较，modernc.org/sqlite 也没有 mips 目标的实现。
+var unsupportedTargets = map[string]string{
+	"linux/386":    "32-bit Linux is not supported by ydx/nodeid | ydx/nodeid 不支持 32 位 Linux",
+	"linux/arm":    "32-bit Linux is not supported by ydx/nodeid | ydx/nodeid 不支持 32 位 Linux",
+	"linux/mips":   "modernc.org/sqlite has no mips implementation | modernc.org/sqlite 没有 mips 实现",
+	"linux/mipsle": "modernc.org/sqlite has no mipsle implementation | modernc.org/sqlite 没有 mipsle 实现",
+}
+
 // ParseTargets parses a comma separated list such as
 // "linux/amd64,linux/arm64,windows/amd64" into individual targets. | ParseTargets 把
 // "linux/amd64,linux/arm64,windows/amd64" 这样以逗号分隔的列表解析为独立的目标。
@@ -65,6 +78,10 @@ func ParseTargets(s string) ([]Target, error) {
 		}
 		if !knownGOARCH[goarch] {
 			return nil, errs.Detail(ErrInvalidTarget, "unknown GOARCH %q | 未知的 GOARCH %q", goarch, goarch)
+		}
+		if reason, unsupported := unsupportedTargets[goos+"/"+goarch]; unsupported {
+			return nil, errs.Detail(ErrInvalidTarget, "target %q is not buildable: %s | 目标 %q 不可构建：%s",
+				goos+"/"+goarch, reason, goos+"/"+goarch, reason)
 		}
 		if seen[entry] {
 			continue

@@ -29,6 +29,9 @@ var (
 	ErrSelfOperation = errs.New("you cannot disable your own account | 不能停用自己的账号")
 	// ErrTenantSelection reports an empty membership set or a default tenant outside it. | ErrTenantSelection 表示成员租户为空，或默认租户不在其中。
 	ErrTenantSelection = errs.New("select at least one tenant and pick the default tenant among them | 至少选择一个租户，并把默认租户选在其中")
+	// ErrUserGrantEscalation reports a role selection whose capabilities exceed the actor's own. | ErrUserGrantEscalation
+	// 表示所选角色授予的能力超出了操作者自身持有的能力。
+	ErrUserGrantEscalation = errs.New("the requested roles exceed your capabilities | 所选角色超出你的权限")
 )
 
 // Length bounds for the e-mail address and the password. | 邮箱与口令的长度边界。
@@ -51,6 +54,14 @@ type CreateUserInput struct {
 	Scheme string
 	// Roles is the initial role name set; empty assigns member. | Roles 是初始角色名集合；为空时分配 member。
 	Roles []string
+	// Grantable is the capability set of the actor performing the creation. Every capability granted by an explicitly
+	// requested role must be present here, so the controller's anti-escalation gate is repeated at the last possible
+	// moment; a nil map holds no capability and therefore refuses every explicitly requested role. It is ignored when
+	// Roles is empty, because the member fallback is the baseline role rather than a caller-selected grant. |
+	// Grantable 是执行建号的操作者能力集合。显式申请的角色所授予的每项能力都必须在此集合内，因此控制器的防越权
+	// 闸门在最后一刻再执行一次；nil map 不持有任何能力，因此会拒绝所有显式申请的角色。Roles 为空时忽略它，
+	// 因为 member 回退是基线角色，而不是调用方选择的授权。
+	Grantable map[model.Permission]struct{}
 }
 
 // UpdateUserInput 是修改用户资料的表单输入（不含口令与角色，它们各有各的入口）。
@@ -156,6 +167,15 @@ func (s *UserService) Create(ctx context.Context, tenantID string, in CreateUser
 	if err != nil {
 		return model.User{}, err
 	}
+	// Defence in depth: the controller already refused roles above the actor's capabilities, and this second check
+	// makes the rule hold for every other caller as well. An empty request falls back to member and is not judged
+	// against Grantable. | 纵深防御：控制器已经拒绝了超出操作者能力的角色，这道二次校验让规则对其余调用方同样成立。
+	// 空请求回退到 member，不按 Grantable 判定。
+	if hasExplicitRoles(in.Roles) {
+		if err := s.ensureGrantable(ctx, tenantID, roles, in.Grantable); err != nil {
+			return model.User{}, err
+		}
+	}
 	return s.users.Create(ctx, tenantID, auth.CreateUserInput{
 		Username:    username,
 		Email:       email,
@@ -163,6 +183,46 @@ func (s *UserService) Create(ctx context.Context, tenantID string, in CreateUser
 		Password:    password,
 		Roles:       roles,
 	})
+}
+
+// hasExplicitRoles reports whether the caller named at least one non-empty role. | hasExplicitRoles 报告调用方是否至少点名了一个非空角色。
+func hasExplicitRoles(names []string) bool {
+	for _, name := range names {
+		if strings.TrimSpace(name) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// ensureGrantable refuses a role set whose capabilities are not a subset of grantable. | ensureGrantable 拒绝能力集合不是
+// grantable 子集的角色集合。
+//
+// A nil grantable means "no capability": the service cannot tell a forgotten actor from an actor holding nothing, and
+// granting from an unknown authority would be the more dangerous guess. | nil grantable 表示「没有任何能力」：服务层
+// 无法区分「忘记传操作者」与「操作者没有任何能力」，而在权限未知时放行是更危险的猜测。
+func (s *UserService) ensureGrantable(ctx context.Context, tenantID string, names []string, grantable map[model.Permission]struct{}) error {
+	catalogue, err := s.roles.List(ctx, tenantID)
+	if err != nil {
+		return err
+	}
+	byName := make(map[string]model.Role, len(catalogue))
+	for _, role := range catalogue {
+		byName[strings.ToLower(role.Name)] = role
+	}
+	for _, name := range names {
+		role, ok := byName[strings.ToLower(name)]
+		if !ok {
+			continue
+		}
+		for _, permission := range role.Permissions {
+			if _, held := grantable[permission]; !held {
+				return errs.Detail(ErrUserGrantEscalation, "role %[1]q grants %[2]q, which the actor does not hold | 角色 %[1]q 授予了操作者并不持有的 %[2]q",
+					role.Name, permission)
+			}
+		}
+	}
+	return nil
 }
 
 // Update replaces the user's profile fields (roles and password excluded). | Update 覆盖用户的资料字段（不含角色与口令）。
@@ -243,13 +303,18 @@ func (s *UserService) Tenants(ctx context.Context, userID string) ([]model.Tenan
 
 // SetTenants replaces the user's memberships and default tenant. | SetTenants 覆盖用户的成员租户与默认租户。
 //
-// 顺序是有意安排的：先补齐新租户、再切换默认租户、最后移除多余租户。这样旧默认租户在
-// 移除时已经不再是默认，仓储层「默认租户不可移除」的规则因此不会挡住一次合法的调整。
-// The order is deliberate: add the new tenants, switch the default, and only then drop the
-// extras. That way the old default is no longer the default when it is removed, so the store's
-// "the default tenant cannot be removed" rule never blocks a legitimate adjustment.
+// The whole target set is validated before anything is written, and the atomic TenantReplacer is used whenever the
+// store offers it: the user row and every membership row are locked, all target tenants, roles and the default tenant
+// are checked, and only then are rows inserted, updated or deleted. A store without that capability falls back to the
+// sequential add → switch default → remove order with explicit compensation for the steps already performed. The
+// sequential order is deliberate: the old default is no longer the default when it is removed, so a legitimate
+// adjustment is not blocked by the "the default tenant cannot be removed" rule. | 整个目标集合在写入之前先完成校验，
+// 并且只要存储层提供原子能力就使用 TenantReplacer：锁定用户行与全部成员关系行，校验所有目标租户、角色与默认租户，
+// 然后才插入、更新或删除。没有该能力的存储回退到「新增 → 切换默认 → 移除」的顺序并显式补偿已完成的步骤。
+// 顺序是刻意的：旧默认租户在被移除时已经不是默认，因此一次合法的调整不会被「默认租户不可移除」规则挡住。
 func (s *UserService) SetTenants(ctx context.Context, actorTenantID, userID string, tenantIDs []string, defaultTenantID string) error {
-	if _, err := s.users.Get(ctx, actorTenantID, userID); err != nil {
+	target, err := s.users.Get(ctx, actorTenantID, userID)
+	if err != nil {
 		return ErrUserNotFound
 	}
 	desired := make([]string, 0, len(tenantIDs))
@@ -275,6 +340,15 @@ func (s *UserService) SetTenants(ctx context.Context, actorTenantID, userID stri
 	if _, ok := seen[defaultTenantID]; !ok {
 		return ErrTenantSelection
 	}
+	// The identity tenant is immutable; removing it would orphan the sec_key sealed with it. | 身份租户不可变；
+	// 移除它会让以它封装的 sec_key 失去归属。
+	homeTenantID := strings.TrimSpace(target.HomeTenantID)
+	if homeTenantID == "" {
+		homeTenantID = target.TenantID
+	}
+	if _, ok := seen[homeTenantID]; !ok {
+		return errs.Detail(auth.ErrConflict, "the home tenant cannot be removed | 身份租户不可移除")
+	}
 
 	current, err := s.users.Tenants(ctx, userID)
 	if err != nil {
@@ -284,28 +358,69 @@ func (s *UserService) SetTenants(ctx context.Context, actorTenantID, userID stri
 	for _, t := range current {
 		currentSet[t.ID] = struct{}{}
 	}
+	// Resolve every new tenant and its initial roles before the first write. A missing tenant or role therefore
+	// cannot leave a half-adjusted membership set behind. | 第一次写入之前先解析每个新租户及其初始角色，因此缺少
+	// 租户或角色都不会留下改到一半的成员关系。
+	planned := make([]auth.TenantMembership, 0, len(desired))
 	for _, id := range desired {
 		if _, ok := currentSet[id]; ok {
+			// nil roles keep the stored set of a membership the user already holds. | nil 角色保留用户已有成员关系的库中集合。
+			planned = append(planned, auth.TenantMembership{TenantID: id})
 			continue
 		}
-		roles := s.defaultRoles(ctx, id)
-		if err := s.users.AddTenant(ctx, userID, id, roles); err != nil {
+		roles, err := s.membershipRoles(ctx, id)
+		if err != nil {
 			return err
 		}
+		planned = append(planned, auth.TenantMembership{TenantID: id, Roles: roles})
+	}
+	if replacer := s.users.TenantReplacer(); replacer != nil {
+		return replacer.ReplaceUserTenants(ctx, userID, planned, defaultTenantID)
+	}
+
+	// Sequential fallback for stores without the atomic capability. | 没有原子能力时的顺序回退。
+	added := make([]string, 0, len(planned))
+	for _, membership := range planned {
+		if _, ok := currentSet[membership.TenantID]; ok {
+			continue
+		}
+		if err := s.users.AddTenant(ctx, userID, membership.TenantID, membership.Roles); err != nil {
+			s.rollbackAddedTenants(ctx, userID, added)
+			return err
+		}
+		added = append(added, membership.TenantID)
 	}
 	if err := s.users.SetDefaultTenant(ctx, userID, defaultTenantID); err != nil {
+		s.rollbackAddedTenants(ctx, userID, added)
 		return err
 	}
-	desiredSet := seen
 	for _, t := range current {
-		if _, keep := desiredSet[t.ID]; keep {
+		if _, keep := seen[t.ID]; keep {
 			continue
 		}
 		if err := s.users.RemoveTenant(ctx, userID, t.ID); err != nil {
+			// Compensate the steps already taken. Restoring the old default may fail if it was removed earlier in
+			// this loop; that is the residual, documented cost of the fallback and exactly why the atomic path
+			// exists. | 补偿已完成的步骤。旧默认若已在本循环中被移除，恢复它可能失败；这是回退路径的已知残余
+			// 代价，也正是原子路径存在的原因。
+			_ = s.users.SetDefaultTenant(ctx, userID, target.DefaultTenant())
+			s.rollbackAddedTenants(ctx, userID, added)
 			return err
 		}
 	}
 	return nil
+}
+
+// rollbackAddedTenants removes memberships added by the sequential fallback, newest first. | rollbackAddedTenants 按从新到旧
+// 的顺序移除顺序回退中新增的成员关系。
+//
+// Compensation is best-effort by design: the original error is the one the caller must see, and a compensation
+// failure means the store itself is failing, not that the caller may retry blindly. | 补偿按设计是尽力而为：调用方
+// 必须看到的是最初的错误，而补偿失败意味着存储本身已经故障，而不是调用方可以盲目重试。
+func (s *UserService) rollbackAddedTenants(ctx context.Context, userID string, tenantIDs []string) {
+	for i := len(tenantIDs) - 1; i >= 0; i-- {
+		_ = s.users.RemoveTenant(ctx, userID, tenantIDs[i])
+	}
 }
 
 // SetDefaultTenant 管理员为用户指定默认租户；目标必须是该用户的成员租户。
@@ -333,22 +448,25 @@ func (s *UserService) SwitchTenant(ctx context.Context, userID, tenantID string)
 	return u, nil
 }
 
-// defaultRoles 返回新成员在目标租户的初始角色：存在 member 就用它，否则不授予任何角色。
-// defaultRoles returns the initial roles of a new membership: member when that role exists, otherwise none.
+// membershipRoles returns the initial roles of a new membership: member when the target tenant holds it, otherwise
+// none. | membershipRoles 返回新成员关系的初始角色：目标租户持有 member 就用它，否则不授予任何角色。
 //
-// 目标租户可能由另一个管理员刚建成、角色尚未写入，因此这里绝不把「找不到 member」当作错误。
-// A freshly created tenant may not hold its roles yet, so a missing member role is never an error here.
-func (s *UserService) defaultRoles(ctx context.Context, tenantID string) []string {
+// Unlike the old swallow-everything helper, an unknown or unreadable tenant is reported: the caller is about to write
+// a membership and must not proceed on a role list it could not read. A freshly created tenant may not hold the
+// member role yet, so a missing member is not an error. | 与旧版吞掉一切错误的辅助函数不同，租户未知或无法读取时
+// 会如实上报：调用方即将写入成员关系，不能凭一份读不到的角色清单继续。新租户可能尚未写入 member 角色，因此缺少
+// member 不是错误。
+func (s *UserService) membershipRoles(ctx context.Context, tenantID string) ([]string, error) {
 	catalogue, err := s.roles.List(ctx, tenantID)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	for _, role := range catalogue {
 		if strings.EqualFold(role.Name, model.RoleMember) {
-			return []string{role.Name}
+			return []string{role.Name}, nil
 		}
 	}
-	return nil
+	return nil, nil
 }
 
 // normaliseRoles 校验并去重角色名：空集合落到 member，未知名称以 ErrRoleUnknown 拒绝（失败即关闭）。

@@ -347,3 +347,52 @@ func TestStartDoesNotRequireWhenDisabled(t *testing.T) {
 	t.Setenv("GODEBUG", "")
 	_ = newTestServer(t, func(o *Options) { o.H2C = true })
 }
+
+// TestRunWithShutdownByCallerLeavesShutdownToCaller proves the single-grace-period contract: Run
+// stops serving and returns without draining, and the caller's Shutdown performs the lifecycle
+// close once. | TestRunWithShutdownByCallerLeavesShutdownToCaller 证明单一宽限期契约：Run 停止服务后
+// 直接返回、不排空，由调用方的 Shutdown 完成一次生命周期关闭。
+func TestRunWithShutdownByCallerLeavesShutdownToCaller(t *testing.T) {
+	srv := New(Options{
+		Host:             "127.0.0.1",
+		Port:             0,
+		Handler:          protoHandler(),
+		ShutdownTimeout:  3 * time.Second,
+		ShutdownByCaller: true,
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	runErr := make(chan error, 1)
+	go func() { runErr <- srv.Run(ctx) }()
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if srv.Addr() != "" {
+			if c, err := net.DialTimeout("tcp", srv.Addr(), 200*time.Millisecond); err == nil {
+				_ = c.Close()
+				break
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	cancel()
+	select {
+	case err := <-runErr:
+		if err != nil {
+			t.Fatalf("Run 返回错误: %v | Run returned %v", err, err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not exit when ctx was canceled | Run 未随 ctx 取消而退出")
+	}
+	if srv.Lifecycle().ShuttingDown() {
+		t.Fatal("Run shut the lifecycle down despite ShutdownByCaller | 设置 ShutdownByCaller 后 Run 仍关闭了生命周期")
+	}
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer shutdownCancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		t.Fatalf("caller Shutdown 失败: %v | caller Shutdown failed: %v", err, err)
+	}
+	if !srv.Lifecycle().ShuttingDown() {
+		t.Fatal("caller Shutdown did not close the lifecycle | 调用方 Shutdown 未关闭生命周期")
+	}
+}

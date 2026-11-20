@@ -58,9 +58,29 @@ func (s *Store) UpdateFriendRequest(ctx context.Context, req messaging.FriendReq
 	return nil
 }
 
-// AcceptFriendRequest accepts a request and creates the friendship atomically. | AcceptFriendRequest 原子地接受申请并创建好友关系。
+// AcceptFriendRequest accepts a request and creates the friendship atomically. The canonical friendship
+// pair is locked before the request row, the same order BlockUser takes, so the two operations cannot
+// form an ABBA deadlock; a deadlock that still happens is retried a bounded number of times. |
+// AcceptFriendRequest 原子地接受申请并创建好友关系。它先锁规范化好友对再锁申请行，与 BlockUser 的加锁
+// 顺序一致，因此两者不会形成 ABBA 死锁；仍然发生的死锁会做有限次重试。
 func (s *Store) AcceptFriendRequest(ctx context.Context, req messaging.FriendRequest, friendship messaging.Friendship) error {
-	return s.transaction(ctx, []string{"yd_msg_friend_requests", "yd_msg_friendships"}, func(tx *gorm.DB) error {
+	return s.retryTransaction(ctx, []string{"yd_msg_friend_requests", "yd_msg_friendships"}, func(tx *gorm.DB) error {
+		low, high := orderedPair(req.RequesterID, req.AddresseeID)
+		var current messaging.Friendship
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("tenant_id = ? AND user_low_id = ? AND user_high_id = ?", req.TenantID, low, high).
+			Take(&current).Error
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return queryError(err)
+		}
+		var pending messaging.FriendRequest
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Select("id", "status").
+			Where("tenant_id = ? AND id = ?", req.TenantID, req.ID).Take(&pending).Error; err != nil {
+			return queryError(err)
+		}
+		if pending.Status != messaging.FriendPending {
+			return messaging.ErrRequestClosed
+		}
 		result := tx.Model(&messaging.FriendRequest{}).
 			Where("tenant_id = ? AND id = ? AND status = ?", req.TenantID, req.ID, messaging.FriendPending).
 			Updates(map[string]any{"status": req.Status, "responded_at": req.RespondedAt})
@@ -227,20 +247,19 @@ func (s *Store) CreateBlock(ctx context.Context, b messaging.Block) error {
 	return nil
 }
 
-// BlockUser stores the block, removes the friendship and closes pending requests atomically. |
-// BlockUser 原子地保存拉黑、删除好友关系并关闭待处理申请。
+// BlockUser stores the block, removes the friendship and closes pending requests atomically. It locks
+// the canonical friendship pair before the request rows, matching AcceptFriendRequest, and retries a
+// bounded number of times if the engine still reports a deadlock. |
+// BlockUser 原子地保存拉黑、删除好友关系并关闭待处理申请。它先锁规范化好友对再锁申请行，与
+// AcceptFriendRequest 一致；引擎仍报告死锁时做有限次重试。
 func (s *Store) BlockUser(ctx context.Context, b messaging.Block) error {
-	return s.transaction(ctx, []string{"yd_msg_blocks", "yd_msg_friendships", "yd_msg_friend_notes", "yd_msg_friend_requests"}, func(tx *gorm.DB) error {
-		if err := tx.Clauses(onConflictDoNothing()).Create(&b).Error; err != nil {
-			return createError(err)
-		}
+	return s.retryTransaction(ctx, []string{"yd_msg_blocks", "yd_msg_friendships", "yd_msg_friend_notes", "yd_msg_friend_requests"}, func(tx *gorm.DB) error {
 		low, high := orderedPair(b.BlockerID, b.BlockedID)
-		if err := tx.
+		var friendship messaging.Friendship
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("tenant_id = ? AND user_low_id = ? AND user_high_id = ?", b.TenantID, low, high).
-			Delete(&messaging.Friendship{}).Error; err != nil {
-			return queryError(err)
-		}
-		if err := deleteFriendNotes(tx, b.TenantID, b.BlockerID, b.BlockedID); err != nil {
+			Take(&friendship).Error
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return queryError(err)
 		}
 		now := b.CreatedAt
@@ -256,6 +275,17 @@ func (s *Store) BlockUser(ctx context.Context, b messaging.Block) error {
 			Where("tenant_id = ? AND requester_id = ? AND addressee_id = ? AND status = ?",
 				b.TenantID, b.BlockedID, b.BlockerID, messaging.FriendPending).
 			Updates(map[string]any{"status": messaging.FriendRejected, "responded_at": &now}).Error; err != nil {
+			return queryError(err)
+		}
+		if err := tx.Clauses(onConflictDoNothing()).Create(&b).Error; err != nil {
+			return createError(err)
+		}
+		if err := tx.
+			Where("tenant_id = ? AND user_low_id = ? AND user_high_id = ?", b.TenantID, low, high).
+			Delete(&messaging.Friendship{}).Error; err != nil {
+			return queryError(err)
+		}
+		if err := deleteFriendNotes(tx, b.TenantID, b.BlockerID, b.BlockedID); err != nil {
 			return queryError(err)
 		}
 		return nil

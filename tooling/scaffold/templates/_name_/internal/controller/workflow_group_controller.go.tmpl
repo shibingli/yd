@@ -122,7 +122,8 @@ func (c *Controller) NewWorkflowGroupDrawer(ctx *router.Ctx) {
 	c.render(ctx, http.StatusOK, TplWorkflowGroupDrawer, c.view(ctx, "新建流程组 | New group", map[string]any{
 		"Group":       workflow.Group{Status: workflow.GroupEnabled},
 		"RoleOptions": workflowRoleOptions(roles, ""),
-		"Mode":        "create",
+		"Mode":        formModeCreate,
+		"IsEdit":        false,
 	}))
 }
 
@@ -157,7 +158,8 @@ func (c *Controller) EditWorkflowGroupDrawer(ctx *router.Ctx) {
 	c.render(ctx, http.StatusOK, TplWorkflowGroupDrawer, c.view(ctx, "编辑流程组 | Edit group", map[string]any{
 		"Group":       group,
 		"RoleOptions": workflowRoleOptions(roles, group.Role),
-		"Mode":        "edit",
+		"Mode":        formModeEdit,
+		"IsEdit":        true,
 	}))
 }
 

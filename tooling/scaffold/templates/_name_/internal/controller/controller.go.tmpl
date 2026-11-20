@@ -184,6 +184,8 @@ const (
 	// TplWorkflowTaskDrawer is the task detail drawer shared by the portal and the back office. |
 	// TplWorkflowTaskDrawer 是门户与后台共用的任务详情抽屉。
 	TplWorkflowTaskDrawer = "partials/workflows/task.html"
+	// TplWorkflowComments is the shared instance comment block. | TplWorkflowComments 是共享的实例评论区块。
+	TplWorkflowComments = "partials/workflows/comments.html"
 	// TplWorkflowStartDrawer is the start-process drawer. | TplWorkflowStartDrawer 是发起流程抽屉。
 	TplWorkflowStartDrawer = "portal/partials/workflows/start.html"
 	// TplWorkflowGroupDrawer is the group create/edit drawer. | TplWorkflowGroupDrawer 是流程组新建/编辑抽屉。
@@ -239,6 +241,19 @@ const (
 	msgUnauthorized = "租户、用户名或口令不正确 | Wrong tenant, user name or password"
 	// msgForbidden is the fallback copy for a refused escalation attempt. | msgForbidden 是越权访问的兜底文案。
 	msgForbidden = "没有权限执行该操作 | You are not allowed to perform this action"
+	// msgNotFound is the outward copy for every not-found category. The wrapped error stays in the log;
+	// returning err.Error() would leak storage keys, file paths and driver messages. |
+	// msgNotFound 是所有「未找到」类别对外的统一文案。包装错误只写日志；返回 err.Error() 会泄露存储键、
+	// 文件路径与驱动报文。
+	msgNotFound = "记录不存在 | Record not found"
+	// msgConflict is the outward copy for state conflicts. | msgConflict 是状态冲突对外的统一文案。
+	msgConflict = "操作与当前状态冲突 | The operation conflicts with the current state"
+	// msgUnavailable is the outward copy for an unavailable backend. | msgUnavailable 是后端不可用对外的统一文案。
+	msgUnavailable = "服务暂不可用，请稍后重试 | Service temporarily unavailable, please retry later"
+	// msgTooLarge is the outward copy for an oversized upload. | msgTooLarge 是上传超限对外的统一文案。
+	msgTooLarge = "内容超过大小限制 | Content exceeds the size limit"
+	// msgUnsupported is the outward copy for a rejected media type. | msgUnsupported 是媒体类型被拒对外的统一文案。
+	msgUnsupported = "不支持的内容类型 | Unsupported content type"
 )
 
 // 分页与列表上限：内存仓储一次返回全部记录，这里只作为渲染护栏。
@@ -377,6 +392,8 @@ const (
 	FieldWorkflowDecision = "decision"
 	// FieldWorkflowComment is a task comment or action reason. | FieldWorkflowComment 是任务意见或动作原因。
 	FieldWorkflowComment = "comment"
+	// FieldWorkflowCommentBody is the free-form instance comment body. | FieldWorkflowCommentBody 是实例自由评论正文。
+	FieldWorkflowCommentBody = "body"
 	// FieldWorkflowReason is a withdrawal or termination reason. | FieldWorkflowReason 是撤回或终止原因。
 	FieldWorkflowReason = "reason"
 	// FieldWorkflowTarget is the target user, node or group. | FieldWorkflowTarget 是目标用户、节点或组。
@@ -395,6 +412,9 @@ const (
 	FieldWorkflowFilterDefinition = "definition"
 	// FieldWorkflowFilterTab is the portal tab. | FieldWorkflowFilterTab 是门户页签。
 	FieldWorkflowFilterTab = "tab"
+	// FieldWorkflowInstance narrows the portal task list to one instance. | FieldWorkflowInstance
+	// 把门户任务列表收窄到一个实例。
+	FieldWorkflowInstance = "instance"
 	// FieldWorkflowSignal is the message signal name. | FieldWorkflowSignal 是消息信号名。
 	FieldWorkflowSignal = "signal"
 	// FieldWorkflowVersion is the version number filter. | FieldWorkflowVersion 是版本号筛选。
@@ -495,7 +515,7 @@ func New(a *app.App, store *repository.Store, log *ydlog.Logger, captchaSvc *cap
 		log = ydlog.Default()
 	}
 
-	authSvc, err := service.NewAuthService(store, log)
+	authSvc, err := service.NewAuthService(store, log, a.Config())
 	if err != nil {
 		return nil, err
 	}
@@ -731,11 +751,10 @@ func (c *Controller) workflowServiceOrFail(ctx *router.Ctx) bool {
 	if c.WorkflowAvailable() {
 		return true
 	}
-	message := "流程引擎不可用 | workflow engine is unavailable"
-	if c.workflowErr != nil {
-		message = c.workflowErr.Error()
-	}
-	c.fail(ctx, http.StatusServiceUnavailable, message)
+	// The detailed cause is logged once at assembly; the response gets a fixed sentence that cannot
+	// leak a DSN, path or driver message. | 详细原因在装配时记录一次；响应得到一句固定文案，不会泄露
+	// DSN、路径或驱动报文。
+	c.fail(ctx, http.StatusServiceUnavailable, "流程引擎不可用 | workflow engine is unavailable")
 	return false
 }
 
@@ -846,11 +865,66 @@ func (c *Controller) userPermissions(ctx *router.Ctx, tenantID, userID string) (
 	return out, nil
 }
 
-// canManageUser reports whether the actor may change a user: it must hold every capability the
-// target currently has. Otherwise an admin could reset the owner's password and sign in as them.
-// | canManageUser 报告管理员能否修改某个用户：它必须持有目标当前的全部能力，否则管理员可以
-// 重置所有者口令并以其身份登录。
+// actorManagesTenant reports whether the signed-in user actively belongs to tenantID and holds user:update there.
+// | actorManagesTenant 报告当前登录用户是否为 tenantID 的活跃成员并在该租户持有 user:update。
+//
+// This is the cross-tenant half of the user-administration gate. Holding user:update in the current tenant says
+// nothing about another tenant, so every membership added to or removed from a user — and the tenant that owns the
+// user's identity — must be authorised by an administrator of that very tenant. Any error answers false: a missing
+// actor, a missing membership, a store failure and a missing capability all close the door. | 这是用户管理闸门的
+// 跨租户一半：在当前租户持有 user:update 并不能说明另一个租户里的权限，因此给用户增删的每个成员租户、以及拥有该
+// 用户身份的租户，都必须由那个租户自己的管理员授权。任何错误都回答 false：没有操作者、没有成员关系、存储故障与
+// 缺少能力一律关门。
+func (c *Controller) actorManagesTenant(ctx *router.Ctx, tenantID string) bool {
+	tenantID = strings.TrimSpace(tenantID)
+	if tenantID == "" {
+		return false
+	}
+	actor, ok := auth.CurrentUser(ctx)
+	if !ok || actor == nil || strings.TrimSpace(actor.ID) == "" {
+		return false
+	}
+	// The membership lookup is the boundary: Get returns ErrNotFound for a tenant the actor does not belong to,
+	// and an inactive membership is refused as well. | 成员关系查询就是边界：actor 不属于的租户会让 Get 返回
+	// ErrNotFound，非活跃成员关系同样被拒绝。
+	member, err := c.users.Get(ctx.Request.Context(), tenantID, actor.ID)
+	if err != nil || !member.Active() {
+		return false
+	}
+	permissions, err := c.userPermissions(ctx, tenantID, actor.ID)
+	if err != nil {
+		return false
+	}
+	for _, permission := range permissions {
+		if permission == model.Permission(authz.PermUserUpdate) {
+			return true
+		}
+	}
+	return false
+}
+
+// canManageUser reports whether the actor may change a user: it must hold every capability the target currently has,
+// and it must be an administrator of the tenant that owns the target's identity. | canManageUser 报告管理员能否修改
+// 某个用户：它必须持有目标当前的全部能力，并且必须是拥有该用户身份的那个租户的管理员。
+//
+// The second clause closes the cross-tenant takeover: a user who is an ordinary member of tenant A and the owner of
+// tenant B is manageable from A only when A's administrator also administers B. Without it, A's admin could reset the
+// shared password or rotate the shared sec_key from A and then sign in as that user in B. The home tenant falls back
+// to TenantID for records written before HomeTenantID existed. | 第二条堵住跨租户接管：一个同时是 A 普通成员与
+// B 所有者的用户，只有在 A 的管理员同时管理 B 时才能从 A 管理。没有这条，A 的管理员可以从 A 重置共享口令或轮换
+// 共享 sec_key，再以该用户身份登录 B。HomeTenantID 出现之前写入的记录回退到 TenantID。
 func (c *Controller) canManageUser(ctx *router.Ctx, tenantID, userID string) bool {
+	target, err := c.users.Get(ctx.Request.Context(), tenantID, userID)
+	if err != nil {
+		return false
+	}
+	homeTenantID := strings.TrimSpace(target.HomeTenantID)
+	if homeTenantID == "" {
+		homeTenantID = target.TenantID
+	}
+	if !c.actorManagesTenant(ctx, homeTenantID) {
+		return false
+	}
 	current, err := c.userPermissions(ctx, tenantID, userID)
 	if err != nil {
 		return false
@@ -941,6 +1015,22 @@ func (c *Controller) view(ctx *router.Ctx, title string, extra map[string]any) m
 // 整块外壳请求仍拿到完整数据。
 // pageView chooses the data depth for handlers that may answer with a fragment: an htmx workspace fragment skips
 // the shell-only lookups, while a whole-page request and a shell swap still receive the full data.
+// langSwitchPath returns the current request URI with the lang query parameter set to lang,
+// preserving every other query value. Rebuilding the URI instead of appending "?lang=" keeps
+// filters and page numbers when the visitor switches languages. | langSwitchPath 返回把 lang 查询
+// 参数设为指定语言后的当前请求 URI，并保留其它查询参数。重建 URI 而不是拼接 "?lang="，使访客切换
+// 语言时筛选条件与页码不会丢失。
+func langSwitchPath(ctx *router.Ctx, lang string) string {
+	if ctx == nil || ctx.Request == nil || ctx.Request.URL == nil {
+		return ""
+	}
+	u := *ctx.Request.URL
+	query := u.Query()
+	query.Set("lang", lang)
+	u.RawQuery = query.Encode()
+	return u.RequestURI()
+}
+
 func (c *Controller) pageView(ctx *router.Ctx, title string, extra map[string]any) map[string]any {
 	return c.renderData(ctx, title, extra, !htmx.IsPartial(ctx.Request) || isShellTarget(ctx.Request))
 }
@@ -969,11 +1059,18 @@ func (c *Controller) renderData(ctx *router.Ctx, title string, extra map[string]
 		"Scripts":             meta.HtmxExtScripts,
 		"BundleURLs":          c.bundleURLs,
 		"Path":                ctx.Path(),
+		"LangSwitchPathZh":    langSwitchPath(ctx, "zh-CN"),
+		"LangSwitchPathEn":    langSwitchPath(ctx, "en"),
 		"PublicKey":           c.PublicKey(),
 		"KeyEndpoint":         PubkeyPath,
+		"EncryptScheme":       auth.EncryptSchemeSM2,
 		"Lang":                lang,
 		"ThemeChoice":         themeChoice,
 		"ThemeResolved":       themeResolved,
+		"ThemeLight":          themeLight,
+		"ThemeDark":           themeDark,
+		"ThemeSystem":         themeSystem,
+		"ThemeAuto":           themeAuto,
 		"TenantHeader":        meta.TenantHeader,
 		"SeedNotice":          meta.SeedPasswordNotice,
 		"User":                nil,
@@ -993,6 +1090,32 @@ func (c *Controller) renderData(ctx *router.Ctx, title string, extra map[string]
 		"DictionaryAvailable": c.DictionariesAvailable(),
 		"WorkflowAvailable":   c.WorkflowAvailable(),
 		"WorkflowError":       workflowErrorMessage(c.WorkflowError()),
+		// Workflow badge maps and status constants: templates look these up instead of comparing
+		// raw engine strings, so a renamed constant cannot leave dead copy behind. |
+		// 流程徽标映射与状态常量：模板查表而不比较引擎裸字符串，常量改名不会留下死文案。
+		"WorkflowInstanceBadges":  workflowInstanceBadgeMap,
+		"WorkflowOutcomeBadges":   workflowOutcomeBadgeMap,
+		"WorkflowOutcomeLabels":   workflowOutcomeLabelMap,
+		"WorkflowTaskBadges":      workflowTaskBadgeMap,
+		"WorkflowDecisionLabels":  workflowDecisionLabelMap,
+		"WorkflowEventLabels":     workflowEventLabelMap,
+		"WorkflowDefinitionBadges": workflowDefinitionBadgeMap,
+		"WorkflowVersionBadges":   workflowVersionBadgeMap,
+		"WorkflowGroupBadges":     workflowGroupBadgeMap,
+		"WorkflowDefinitionDraft":     workflow.DefinitionDraft,
+		"WorkflowDefinitionPublished": workflow.DefinitionPublished,
+		"WorkflowDefinitionDisabled":  workflow.DefinitionDisabled,
+		"WorkflowVersionDraft":        workflow.VersionDraft,
+		"WorkflowVersionPublished":    workflow.VersionPublished,
+		"WorkflowGroupEnabled":        workflow.GroupEnabled,
+		"WorkflowGroupDisabled":       workflow.GroupDisabled,
+		"WorkflowInstanceRunning":     workflow.InstanceRunning,
+		"WorkflowInstanceCompleted":   workflow.InstanceCompleted,
+		"WorkflowInstanceWithdrawn":   workflow.InstanceWithdrawn,
+		"WorkflowInstanceTerminated":  workflow.InstanceTerminated,
+		"WorkflowTabTodo":             workflowTabTodo,
+		"WorkflowTabStarted":          workflowTabStarted,
+		"WorkflowTabDone":             workflowTabDone,
 		// The captcha switches appear in every page's data: the sign-in and account pages decide from them whether
 		// to render the widget, and the whole block is omitted while disabled.
 		// 验证码开关在每一份页面数据里都出现：登录页与账号页据此决定是否渲染组件，关闭时模板整块省略。
@@ -1120,10 +1243,15 @@ func (c *Controller) renderData(ctx *router.Ctx, title string, extra map[string]
 		}
 	}
 	if c.messageErr != nil {
-		data["MessageError"] = c.messageErr.Error()
+		// The detailed cause stays in the log; the page gets a fixed sentence that cannot leak a
+		// DSN, a storage prefix or a driver message. | 详细原因只写日志；页面得到一句固定文案，
+		// 不会泄露 DSN、存储前缀或驱动报文。
+		c.log.Warn("message centre unavailable | 消息中心不可用", ydlog.Err(c.messageErr))
+		data["MessageError"] = "消息中心暂不可用 | The message centre is temporarily unavailable"
 	}
 	if c.attachmentErr != nil {
-		data["AttachmentError"] = c.attachmentErr.Error()
+		c.log.Warn("attachment service unavailable | 附件服务不可用", ydlog.Err(c.attachmentErr))
+		data["AttachmentError"] = "附件服务暂不可用 | The attachment service is temporarily unavailable"
 	}
 	return data
 }
@@ -1332,7 +1460,32 @@ func firstNonEmpty(values ...string) string {
 // 换入指定容器。页面处理器因此返回列表片段，筛选后的 URL 仍是规范页面 URL，浏览器历史与
 // HX-Current-URL 都带着筛选条件。
 func workflowHTMXTarget(ctx *router.Ctx, id string) bool {
-	return strings.TrimPrefix(strings.TrimSpace(ctx.Request.Header.Get("HX-Target")), "#") == id
+	return htmxTargetID(ctx) == id
+}
+
+// htmxTargetID extracts the element id from HX-Target. Htmx 4 sends "tag#id" (for example
+// "section#yd-msg-main"), while Htmx 3 sent "#id"; the id is the part after the last '#' and is
+// URL-decoded because htmx percent-encodes it. An empty string means the header is absent or
+// malformed. Comparing the raw header against a bare id is wrong in Htmx 4 and silently sends every
+// filtered request down the full-page branch. | htmxTargetID 从 HX-Target 提取元素 ID。Htmx 4 发送
+// "tag#id"（例如 "section#yd-msg-main"），Htmx 3 发送 "#id"；ID 是最后一个 '#' 之后的部分，
+// 并按 htmx 的百分号编码做解码。空串表示请求头缺失或格式非法。把原始请求头与裸 ID 比较在
+// Htmx 4 中是错误的，会让每个筛选请求静默走整页分支。
+func htmxTargetID(ctx *router.Ctx) string {
+	if ctx == nil || ctx.Request == nil {
+		return ""
+	}
+	raw := strings.TrimSpace(ctx.Request.Header.Get("HX-Target"))
+	if raw == "" {
+		return ""
+	}
+	if i := strings.LastIndexByte(raw, '#'); i >= 0 {
+		raw = raw[i+1:]
+	}
+	if decoded, err := url.PathUnescape(raw); err == nil {
+		return strings.TrimSpace(decoded)
+	}
+	return strings.TrimSpace(raw)
 }
 
 // payload 读取一个密文字段并还原为字节：前端提交的是 Base64，auth.DecryptLoginPayload 两种形态都接受。
@@ -1373,6 +1526,27 @@ func (c *Controller) layoutForPath(path string) (layout, shell string, portal bo
 	return LayoutPortal, ShellPortal, true
 }
 
+// Form modes carried in view data. Templates compare IsEdit/IsSystem booleans derived from these
+// constants, so no template repeats the machine word. | 视图数据携带的表单模式。模板比较由这些常量
+// 推导出的 IsEdit/IsSystem 布尔值，因此没有任何模板重复机器字面量。
+const (
+	formModeCreate = "create"
+	formModeEdit   = "edit"
+	formModeSystem = "system"
+)
+
+// UI theme choices accepted by the theme cookie and rendered onto <html>. | 主题 cookie 接受并渲染到
+// <html> 的 UI 主题取值。
+const (
+	themeAuto  = "auto"
+	themeLight = "light"
+	themeDark  = "dark"
+)
+
+// themeSystem is the glyph token of the follow-system choice; the value rendered into data-theme is
+// auto. | themeSystem 是跟随系统选项的图标标识；渲染到 data-theme 的取值是 auto。
+const themeSystem = "system"
+
 // themePreference 读取三态主题 cookie，返回按钮态与首字节 data-theme 取值。
 // themePreference reads the three-state theme cookie and returns the button state and the
 // data-theme value rendered into the first byte.
@@ -1385,14 +1559,14 @@ func (c *Controller) layoutForPath(path string) (layout, shell string, portal bo
 // yd-theme-boot.js overrides it from localStorage before the stylesheet, so this value is the
 // correct answer for the first byte and for the no-script case.
 func themePreference(ctx *router.Ctx) (choice, resolved string) {
-	choice = "auto"
+	choice = themeAuto
 	if ctx != nil && ctx.Request != nil {
 		if cookie, err := ctx.Request.Cookie(meta.ThemeCookie); err == nil && cookie != nil {
 			switch strings.ToLower(strings.TrimSpace(cookie.Value)) {
-			case "light":
-				choice = "light"
-			case "dark":
-				choice = "dark"
+			case themeLight:
+				choice = themeLight
+			case themeDark:
+				choice = themeDark
 			}
 		}
 	}
@@ -1598,7 +1772,7 @@ func statusFor(err error) (int, string) {
 		// Validation failures are always 422: it matches the front end's hx-status:422 contract and is more precise than 400.
 		return http.StatusUnprocessableEntity, err.Error()
 	case errors.Is(err, service.ErrUserNotFound), errors.Is(err, service.ErrRoleNotFound):
-		return http.StatusNotFound, err.Error()
+		return http.StatusNotFound, msgNotFound
 	case errors.Is(err, middleware.ErrTenantRequired),
 		errors.Is(err, auth.ErrTenantRequired),
 		errors.Is(err, service.ErrCipherRequired),
@@ -1621,12 +1795,13 @@ func statusFor(err error) (int, string) {
 		errors.Is(err, messaging.ErrNotFound),
 		errors.Is(err, messaging.ErrAttachmentNotFound),
 		errors.Is(err, attachments.ErrNotFound):
-		return http.StatusNotFound, err.Error()
+		return http.StatusNotFound, msgNotFound
 	case errors.Is(err, auth.ErrWeakPassword), errors.Is(err, auth.ErrInvalidInput):
 		// 框架 sentinel 与项目 sentinel 落在同一个状态码上：调用方分辨不出拒绝来自哪一层。
 		// Framework sentinels land on the same status codes as this project's own, so a caller cannot tell which layer refused.
 		return http.StatusUnprocessableEntity, err.Error()
 	case errors.Is(err, auth.ErrForbidden), errors.Is(err, middleware.ErrTenantMismatch),
+		errors.Is(err, service.ErrUserGrantEscalation),
 		errors.Is(err, messaging.ErrForbidden), errors.Is(err, messaging.ErrNotFriend),
 		errors.Is(err, messaging.ErrBlocked), errors.Is(err, messaging.ErrNotSender),
 		errors.Is(err, messaging.ErrSystemOnly), errors.Is(err, messaging.ErrPinNotAllowed),
@@ -1642,16 +1817,16 @@ func statusFor(err error) (int, string) {
 		errors.Is(err, messaging.ErrDuplicateRequest), errors.Is(err, messaging.ErrConversationClosed),
 		errors.Is(err, messaging.ErrRequestClosed), errors.Is(err, messaging.ErrRecalled),
 		errors.Is(err, messaging.ErrTypeProtected), errors.Is(err, messaging.ErrTypeInUse):
-		return http.StatusConflict, err.Error()
+		return http.StatusConflict, msgConflict
 	case errors.Is(err, messaging.ErrAttachmentTooLarge), errors.Is(err, attachments.ErrTooLarge):
-		return http.StatusRequestEntityTooLarge, err.Error()
+		return http.StatusRequestEntityTooLarge, msgTooLarge
 	case errors.Is(err, messaging.ErrAttachmentType), errors.Is(err, attachments.ErrTypeNotAllowed):
-		return http.StatusUnsupportedMediaType, err.Error()
+		return http.StatusUnsupportedMediaType, msgUnsupported
 	case errors.Is(err, messaging.ErrUnavailable), errors.Is(err, attachments.ErrUnavailable),
 		errors.Is(err, service.ErrAttachmentUnavailable):
-		return http.StatusServiceUnavailable, err.Error()
+		return http.StatusServiceUnavailable, msgUnavailable
 	case errors.Is(err, attachments.ErrReferenced):
-		return http.StatusConflict, err.Error()
+		return http.StatusConflict, msgConflict
 	case errors.Is(err, attachments.ErrInvalidInput), errors.Is(err, attachments.ErrReasonRequired),
 		errors.Is(err, attachments.ErrReasonTooLong), errors.Is(err, attachments.ErrRefInvalid):
 		return http.StatusUnprocessableEntity, err.Error()
@@ -1664,31 +1839,31 @@ func statusFor(err error) (int, string) {
 		errors.Is(err, dictionary.ErrTooManyCodes), errors.Is(err, dictionary.ErrItemLimit):
 		return http.StatusUnprocessableEntity, err.Error()
 	case errors.Is(err, dictionary.ErrNotFound):
-		return http.StatusNotFound, err.Error()
+		return http.StatusNotFound, msgNotFound
 	case errors.Is(err, dictionary.ErrCodeTaken), errors.Is(err, dictionary.ErrValueTaken),
 		errors.Is(err, dictionary.ErrBuiltinProtected):
-		return http.StatusConflict, err.Error()
+		return http.StatusConflict, msgConflict
 	case errors.Is(err, dictionary.ErrUnavailable), errors.Is(err, service.ErrDictionaryUnavailable):
-		return http.StatusServiceUnavailable, err.Error()
+		return http.StatusServiceUnavailable, msgUnavailable
 	case errors.Is(err, workflow.ErrInvalidInput), errors.Is(err, workflow.ErrInvalidDesign),
 		errors.Is(err, workflow.ErrInvalidCondition), errors.Is(err, workflow.ErrInvalidForm),
 		errors.Is(err, workflow.ErrImportInvalid), errors.Is(err, workflow.ErrBPMNInvalid),
 		errors.Is(err, workflow.ErrNoAssignee), errors.Is(err, workflow.ErrLimit):
 		return http.StatusUnprocessableEntity, err.Error()
 	case errors.Is(err, workflow.ErrNotFound):
-		return http.StatusNotFound, err.Error()
+		return http.StatusNotFound, msgNotFound
 	case errors.Is(err, workflow.ErrForbidden), errors.Is(err, workflow.ErrTaskNotMine):
 		return http.StatusForbidden, msgForbidden
 	case errors.Is(err, workflow.ErrConflict), errors.Is(err, workflow.ErrTaskClosed),
 		errors.Is(err, workflow.ErrInstanceClosed), errors.Is(err, workflow.ErrVersionPublished),
 		errors.Is(err, workflow.ErrDefinitionPublished), errors.Is(err, workflow.ErrWithdrawExpired),
 		errors.Is(err, workflow.ErrRemindLimit):
-		return http.StatusConflict, err.Error()
+		return http.StatusConflict, msgConflict
 	case errors.Is(err, workflow.ErrUnavailable), errors.Is(err, workflow.ErrAIUnavailable),
 		errors.Is(err, workflow.ErrNotificationFailed), errors.Is(err, service.ErrWorkflowUnavailable):
-		return http.StatusServiceUnavailable, err.Error()
+		return http.StatusServiceUnavailable, msgUnavailable
 	case errors.Is(err, router.ErrBodyTooLarge):
-		return http.StatusRequestEntityTooLarge, err.Error()
+		return http.StatusRequestEntityTooLarge, msgTooLarge
 	default:
 		return http.StatusInternalServerError, msgInternal
 	}
@@ -1779,5 +1954,7 @@ func workflowErrorMessage(err error) string {
 	if err == nil {
 		return ""
 	}
-	return err.Error()
+	// The detailed cause is logged by the assembly; the page must not render a DSN, path or driver
+	// message. | 详细原因由装配处记录；页面不得渲染 DSN、路径或驱动报文。
+	return "流程引擎暂不可用 | The workflow engine is temporarily unavailable"
 }

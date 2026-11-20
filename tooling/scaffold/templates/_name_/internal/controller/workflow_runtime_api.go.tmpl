@@ -60,7 +60,7 @@ func (c *Controller) APIWorkflowStart(ctx *router.Ctx) {
 	}
 	instance, err := c.workflow.Start(ctx.Request.Context(), tenantID, c.workflowActor(ctx), workflow.StartInput{
 		DefinitionID: request.DefinitionID, DefinitionKey: request.DefinitionKey, Version: request.Version,
-		Title: request.Title, BusinessKey: request.BusinessKey, Category: request.Category,
+		Title: request.Title, BusinessKey: request.BusinessKey,
 		Variables: request.Variables, FormData: request.FormData,
 	})
 	if err != nil {
@@ -252,7 +252,7 @@ func (c *Controller) APIWorkflowTasks(ctx *router.Ctx) {
 	}
 	tab := strings.ToLower(strings.TrimSpace(ctx.Query(FieldWorkflowFilterTab)))
 	if portal && filter.Status == "" {
-		if tab == "done" {
+		if tab == workflowTabDone {
 			filter.Status = workflow.TaskCompleted
 		} else {
 			filter.Statuses = []string{workflow.TaskPending, workflow.TaskClaimed}
@@ -321,77 +321,117 @@ func (c *Controller) APIWorkflowTaskAction(ctx *router.Ctx) {
 	action := strings.ToLower(strings.TrimSpace(ctx.Param("action")))
 	actor := c.workflowActor(ctx)
 	taskID := ctx.Param("id")
-	var task workflow.Task
-	var err error
-	switch action {
-	case "approve", "reject":
-		request := workflowActionRequest{}
+	request := workflowActionRequest{}
+	dispatched := false
+	// The HTML management surface uses `action` for a decision; the JSON API additionally accepts
+	// the concrete word in the body so the documented `{ "action": "approve" }` example works. A
+	// body word that is not a known action is rejected with 422 instead of falling through. |
+	// HTML 管理端用 `action` 表示决策；JSON API 还接受请求体里的具体动作词，因此文档示例
+	// `{ "action": "approve" }` 可用。未知的请求体动作词直接以 422 拒绝，不会落空。
+	if action == workflowActionDecide {
 		if bindErr := ctx.Bind(&request); bindErr != nil {
 			c.workflowAPIFail(ctx, workflow.ErrInvalidInput)
 			return
 		}
-		decision := request.Decision
-		if decision == "" {
-			decision = action
+		action = strings.ToLower(strings.TrimSpace(request.Action))
+		if action == "" {
+			action = strings.ToLower(strings.TrimSpace(request.Decision))
 		}
-		if action == "approve" {
+		if !workflowActionKnown(action) {
+			c.workflowAPIFail(ctx, workflow.ErrInvalidInput)
+			return
+		}
+		dispatched = true
+	}
+	var task workflow.Task
+	var err error
+	switch action {
+	case workflowActionApprove, workflowActionReject:
+		if !dispatched {
+			if bindErr := ctx.Bind(&request); bindErr != nil {
+				c.workflowAPIFail(ctx, workflow.ErrInvalidInput)
+				return
+			}
+		}
+		decision := request.Decision
+		if action == workflowActionApprove {
 			decision = workflow.DecisionApprove
-		} else if action == "reject" {
+		} else if action == workflowActionReject {
 			decision = workflow.DecisionReject
 		}
 		task, err = c.workflow.Approve(ctx.Request.Context(), tenantID, actor, taskID, workflow.ActionInput{
 			Decision: decision, Comment: request.Comment, FormData: request.FormData,
 		})
-	case "claim":
+	case workflowActionClaim:
 		task, err = c.workflow.Claim(ctx.Request.Context(), tenantID, actor, taskID)
-	case "transfer", "delegate":
-		request := workflowReassignRequest{}
-		if bindErr := ctx.Bind(&request); bindErr != nil {
-			c.workflowAPIFail(ctx, workflow.ErrInvalidInput)
-			return
+	case workflowActionTransfer, workflowActionDelegate:
+		targetID, comment := request.TargetID, request.Comment
+		if !dispatched {
+			reassign := workflowReassignRequest{}
+			if bindErr := ctx.Bind(&reassign); bindErr != nil {
+				c.workflowAPIFail(ctx, workflow.ErrInvalidInput)
+				return
+			}
+			targetID, comment = reassign.TargetID, reassign.Comment
 		}
-		if action == "delegate" {
-			task, err = c.workflow.Delegate(ctx.Request.Context(), tenantID, actor, taskID, workflow.DelegateInput{TargetID: request.TargetID, Comment: request.Comment})
+		if action == workflowActionDelegate {
+			task, err = c.workflow.Delegate(ctx.Request.Context(), tenantID, actor, taskID, workflow.DelegateInput{TargetID: targetID, Comment: comment})
 		} else {
-			task, err = c.workflow.Transfer(ctx.Request.Context(), tenantID, actor, taskID, workflow.TransferInput{TargetID: request.TargetID, Comment: request.Comment})
+			task, err = c.workflow.Transfer(ctx.Request.Context(), tenantID, actor, taskID, workflow.TransferInput{TargetID: targetID, Comment: comment})
 		}
-	case "add-sign":
-		request := workflowAddSignRequest{}
-		if bindErr := ctx.Bind(&request); bindErr != nil {
-			c.workflowAPIFail(ctx, workflow.ErrInvalidInput)
-			return
+	case workflowActionAddSign:
+		userIDs, position, comment := request.UserIDs, request.Position, request.Comment
+		if !dispatched {
+			addSign := workflowAddSignRequest{}
+			if bindErr := ctx.Bind(&addSign); bindErr != nil {
+				c.workflowAPIFail(ctx, workflow.ErrInvalidInput)
+				return
+			}
+			userIDs, position, comment = addSign.UserIDs, addSign.Position, addSign.Comment
 		}
 		if _, err = c.workflow.AddSign(ctx.Request.Context(), tenantID, actor, taskID, workflow.AddSignInput{
-			UserIDs: request.UserIDs, Position: request.Position, Comment: request.Comment,
+			UserIDs: userIDs, Position: position, Comment: comment,
 		}); err == nil {
 			task, err = c.workflow.GetTask(ctx.Request.Context(), tenantID, taskID)
 		}
-	case "remove-sign":
-		request := workflowRemoveSignRequest{}
-		if bindErr := ctx.Bind(&request); bindErr != nil {
-			c.workflowAPIFail(ctx, workflow.ErrInvalidInput)
-			return
+	case workflowActionRemoveSign:
+		targetTaskID, comment := request.TaskID, request.Comment
+		if !dispatched {
+			removeSign := workflowRemoveSignRequest{}
+			if bindErr := ctx.Bind(&removeSign); bindErr != nil {
+				c.workflowAPIFail(ctx, workflow.ErrInvalidInput)
+				return
+			}
+			targetTaskID, comment = removeSign.TaskID, removeSign.Comment
 		}
-		err = c.workflow.RemoveSign(ctx.Request.Context(), tenantID, actor, taskID, request.TaskID, request.Comment)
+		err = c.workflow.RemoveSign(ctx.Request.Context(), tenantID, actor, taskID, targetTaskID, comment)
 		if err == nil {
 			task, err = c.workflow.GetTask(ctx.Request.Context(), tenantID, taskID)
 		}
-	case "return":
-		request := workflowReturnRequest{}
-		if bindErr := ctx.Bind(&request); bindErr != nil {
-			c.workflowAPIFail(ctx, workflow.ErrInvalidInput)
-			return
+	case workflowActionReturn:
+		targetNodeID, comment := request.TargetNodeID, request.Comment
+		if !dispatched {
+			returnRequest := workflowReturnRequest{}
+			if bindErr := ctx.Bind(&returnRequest); bindErr != nil {
+				c.workflowAPIFail(ctx, workflow.ErrInvalidInput)
+				return
+			}
+			targetNodeID, comment = returnRequest.TargetNodeID, returnRequest.Comment
 		}
 		err = c.workflow.Return(ctx.Request.Context(), tenantID, actor, taskID, workflow.ReturnInput{
-			TargetNodeID: request.TargetNodeID, Comment: request.Comment,
+			TargetNodeID: targetNodeID, Comment: comment,
 		})
 		if err == nil {
 			task, err = c.workflow.GetTask(ctx.Request.Context(), tenantID, taskID)
 		}
-	case "remind":
-		request := workflowRemindRequest{}
-		_ = ctx.Bind(&request)
-		task, err = c.workflow.Remind(ctx.Request.Context(), tenantID, actor, taskID, request.Comment)
+	case workflowActionRemind:
+		comment := request.Comment
+		if !dispatched {
+			remind := workflowRemindRequest{}
+			_ = ctx.Bind(&remind)
+			comment = remind.Comment
+		}
+		task, err = c.workflow.Remind(ctx.Request.Context(), tenantID, actor, taskID, comment)
 	default:
 		c.workflowAPIFail(ctx, workflow.ErrInvalidInput)
 		return
@@ -406,6 +446,20 @@ func (c *Controller) APIWorkflowTaskAction(ctx *router.Ctx) {
 		return
 	}
 	_ = ctx.JSON(http.StatusOK, workflowTaskActionResponse{Task: task, Instance: instance})
+}
+
+// workflowActionKnown reports whether action is one of the concrete task action words. The generic
+// `action` word is a URL-only dispatcher and is never accepted as a body value. | workflowActionKnown
+// 报告 action 是否为具体的任务动作词。通用词 `action` 只是 URL 层分派器，绝不作为请求体取值接受。
+func workflowActionKnown(action string) bool {
+	switch action {
+	case workflowActionApprove, workflowActionReject, workflowActionClaim, workflowActionTransfer,
+		workflowActionDelegate, workflowActionAddSign, workflowActionRemoveSign, workflowActionReturn,
+		workflowActionRemind:
+		return true
+	default:
+		return false
+	}
 }
 
 // APIWorkflowStats returns the tenant summary. | APIWorkflowStats 返回租户汇总。
@@ -476,6 +530,78 @@ func (c *Controller) APIPortalWorkflowInstance(ctx *router.Ctx) {
 // @Router /api/portal/v1/workflows/instances/{id}/withdraw [post]
 func (c *Controller) APIPortalWorkflowWithdraw(ctx *router.Ctx) {
 	c.APIWorkflowWithdraw(ctx)
+}
+
+// APIWorkflowComment adds a comment to any instance in the tenant. | APIWorkflowComment 为租户内任意实例
+// 添加评论。
+//
+// @Summary Comment on an instance (management) | 后台发表实例评论
+// @Description Adds a comment to any instance in the caller's tenant. | 为调用方租户内任意实例添加评论。
+// @Tags workflow
+// @Accept json
+// @Produce json
+// @Param id path string true "Instance id | 实例 ID"
+// @Param body body workflowCommentRequest true "comment | 评论"
+// @Success 201 {object} workflowCommentDoc "created comment | 已创建的评论"
+// @Failure 422 {string} string "empty comment | 评论为空"
+// @Security BearerAuth
+// @Router /api/v1/workflow-instances/{id}/comments [post]
+func (c *Controller) APIWorkflowComment(ctx *router.Ctx) { c.apiWorkflowComment(ctx, false) }
+
+// APIPortalWorkflowComment adds a comment to one of the caller's instances. | APIPortalWorkflowComment
+// 为调用方发起或参与的实例添加评论。
+//
+// @Summary Comment on my instance | 门户发表实例评论
+// @Description Adds a comment when the caller initiated or participates in the instance. |
+// 当调用方发起或参与该实例时添加评论。
+// @Tags workflow
+// @Accept json
+// @Produce json
+// @Param id path string true "Instance id | 实例 ID"
+// @Param body body workflowCommentRequest true "comment | 评论"
+// @Success 201 {object} workflowCommentDoc "created comment | 已创建的评论"
+// @Failure 403 {string} string "instance not visible | 实例不可见"
+// @Failure 422 {string} string "empty comment | 评论为空"
+// @Security BearerAuth
+// @Router /api/portal/v1/workflows/instances/{id}/comments [post]
+func (c *Controller) APIPortalWorkflowComment(ctx *router.Ctx) { c.apiWorkflowComment(ctx, true) }
+
+// apiWorkflowComment is the shared JSON comment implementation. | apiWorkflowComment 是共享的 JSON
+// 评论实现。
+func (c *Controller) apiWorkflowComment(ctx *router.Ctx, portal bool) {
+	tenantID, ok := c.workflowAPIAvailable(ctx)
+	if !ok {
+		return
+	}
+	actor := c.workflowActor(ctx)
+	instanceID := strings.TrimSpace(ctx.Param("id"))
+	if portal {
+		inst, err := c.workflow.GetInstance(ctx.Request.Context(), tenantID, instanceID)
+		if err != nil {
+			c.workflowAPIFail(ctx, err)
+			return
+		}
+		visible, err := c.workflow.InstanceVisible(ctx.Request.Context(), tenantID, inst, actor)
+		if err != nil {
+			c.workflowAPIFail(ctx, err)
+			return
+		}
+		if !visible {
+			c.workflowAPIFail(ctx, workflow.ErrForbidden)
+			return
+		}
+	}
+	request := workflowCommentRequest{}
+	if err := ctx.Bind(&request); err != nil {
+		c.workflowAPIFail(ctx, workflow.ErrInvalidInput)
+		return
+	}
+	created, err := c.workflow.AddComment(ctx.Request.Context(), tenantID, actor, instanceID, workflow.CommentInput{Body: request.Body})
+	if err != nil {
+		c.workflowAPIFail(ctx, err)
+		return
+	}
+	_ = ctx.JSON(http.StatusCreated, map[string]any{"comment": created})
 }
 
 // APIPortalWorkflowTasks lists the caller's tasks. | APIPortalWorkflowTasks 列出调用方的任务。

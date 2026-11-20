@@ -265,14 +265,14 @@ document.addEventListener("htmx:after:swap", function (event) {
 **强制约束**：
 
 - 两个用户文件的路径与名称固定为 `web/static/js/yd-app.user.js` 与 `web/static/css/user.css`，
-  不得改名、移动或另建同义文件；`tooling/scaffold/layers.go` 的 `IsUserOwned` 与 `yd sync` 按精确路径判断。
+  不得改名、移动或另建同义文件；框架仓库的 `tooling/scaffold/layers.go` 的 `IsUserOwned` 与 `yd sync` 按精确路径判断。
 - 用户脚本只依赖 `window.yd`（`ready`、`confirm`、`progress`、`messageEditor`）、`window.ydUI`、
   `yd.can/hasRole/perms/roles` 与 `htmx:*` / `yd:*` 事件；不得复制 `yd-app.js` 的初始化逻辑，
   不得另建确认框、进度条、实时连接或重连循环。CSP `script-src 'self'` 下禁止 `eval`、
   `new Function`、内联脚本与 CDN。
 - 用户样式覆盖已有语义令牌必须用 `:root` / `:root[data-theme="dark"]`；同名 `@theme` 会被主资源
   主题层写回，只适合声明新令牌。用户规则保持无层，以覆盖 `@layer components`。
-- 新增用户层文件时，必须同批更新 `tooling/scaffold/layers.go`、`yd sync` 守卫、`requiredFiles`、
+- 扩展脚手架本身（框架仓库）时，新增用户层文件必须同批更新 `tooling/scaffold/layers.go`、`yd sync` 守卫、`requiredFiles`、
   `docs/frontend-ui.md`、生成项目的 `CLAUDE.md` / `AGENTS.md` 与测试；否则视为未完成。
 - 守卫：`TestGeneratedProjectSplitsMainAndUserAssets`、`TestUserOwnedAssetPaths`、
   `TestSyncKeepsUserOwnedAssets`、`TestGeneratedLayeredStylesCompile`。
@@ -1109,7 +1109,7 @@ if (!ydCN.phone(input.value)) {
 语言切换是**局部刷新**：htmx 重取 `#yd-shell`，侧栏、顶栏与工作区一起跟随；不要整页跳转。
 语言按钮使用 `hx-swap="innerHTML"` 而不是 morph：整块外壳重新插入后，每个 Alpine 组件都会获得
 全新的作用域，不会留下绑定到旧 `x-data` 的表达式；其余工作区刷新仍使用 `innerMorph` 以保留输入状态。
-`data-yd-i18n` 与 `data-yd-i18n-attr` 让脚本能在不重新请求的情况下改写文案，两者应同时存在。
+`data-yd-i18n` 与 `data-yd-i18n-attr` 是文案目录的稳定标注。生成项目默认由服务端 `tr` 渲染文案，语言切换经 `#yd-shell` 局部刷新重新渲染，因此标注保持惰性、不要求加载 `yd-i18n.js`；只有在应用显式加载该脚本并注入目录时，它们才会在不重新请求的情况下改写文案。
 
 > **键即可渲染**：表单与中国控件在只提供 `LabelKey`/`HintKey`/`ErrorKey` 时也会从目录取出可见文案
 > （`TestComponentsRenderFromI18nKeysOnly` 守卫）；同时传渲染好的值是为了在脚本未运行或目录缺失时

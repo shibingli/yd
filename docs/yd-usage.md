@@ -362,8 +362,8 @@ yd new <项目名> [flags]
 |---|---|
 | `--module` | Go 模块路径，默认 `github.com/yun-dev/<name>` |
 | `--db` | `sqlite` / `mysql` / `postgres` / `dm` / `none` |
-| `--grpc` | 开启 gRPC 双通道 |
-| `--i18n` | 国际化默认开启；用 `--i18n=false` 显式关闭 |
+| `--grpc` | 生成 `grpc:` 配置段与 `registerFeatures` 中的装配点；具体服务需在该处注册（脚手架不预置 proto） |
+| `--i18n` | 国际化默认开启；`--i18n=false` 省略配置段与特性登记，但语言目录与 `tr` 运行时仍然保留（模板与组件依赖它） |
 | `--htmx-ext` | 省略时加载全部安全扩展：`ws,sse,preload,targets,head,upsert,pending,multipart,download,browser-indicator,history-cache,live,prompt,ptag,alpine`。显式传入时只加载所列扩展（`alpine` 恒开启），并可追加仅显式选择的策略层 `csp`（需 nonce）、`compat` / `htmx-2-compat`（恢复 htmx 2 语义）。Htmx、Tailwind 与 Alpine 本身不是开关 |
 | `--license` | 许可证标识，默认 `Apache-2.0` |
 | `--local-replace` | 指向本地 yd 检出，写入 `go.mod` 的 replace（开发期） |
@@ -1327,9 +1327,11 @@ middleware/ratelimit/v0.1.0
 ```
 
 不需要额外的 registry。**每个模块按自己的子目录标签独立发布，版本可以不同**：
-脚手架 `version_generated.go` 的 `YdxVersions` 按模块记录真实版本。框架本身未依赖、
-但生成项目会导入的模块（`cache`、`redis`、`asynq`、`openapi` 等）不写版本，
-由生成项目首次构建时的 `go mod tidy` 解析。
+脚手架 `version_generated.go` 的 `YdxVersions` 按模块记录真实版本，生成项目的 `go.mod`
+为**每一个** ydx 依赖写入精确标签（包括框架本身未直接引用、仅生成项目导入的
+`cache`、`redis`、`asynq`、`openapi` 等；它们由脚手架侧的 `tools.go` 保留在根 `go.mod` 中）。
+缺少版本会让 `go build` 回退到 ydx 根模块，而根模块并不包含这些包，因此
+`TestGeneratedGoModPinsEveryScaffoldYdxModule` 强制每条都必须带版本。
 
 ### 13.2 升级流程
 
@@ -1518,7 +1520,7 @@ yd service install --name taskapp
 | `yd new` 后 `gofmt -l` 有输出 | 当前版本会在生成时执行 `format.Source`；若仍出现，检查模板是否被手工修改，重新 `yd new --force` |
 | `yd icons check` 报 sprite 漂移 | 运行 `yd icons sync`，再 `yd assets minify` |
 | `yd assets verify --offline` 报校验和不匹配 | 资产被移动或篡改；运行 `yd assets update` 重新锁定，或恢复锁文件 |
-| `yd versions check` 报 `ydx modules require different versions` | 所有 ydx 模块必须同一版本；检查 go.mod 与 `version_generated.go`，运行 `yd versions sync` |
+| `yd versions check` 报版本与真源不一致 | 生成文件落后于 `go.mod` / 资产锁；运行 `yd versions sync`，并确认 `go.mod` 中每个 ydx 模块都有各自的标签版本（不同模块的版本本来就可以不同） |
 | `yd build` 报 `missing go.sum entry` | 首次构建会加 `-mod=mod` 自动补齐；若仍失败，检查 `GOPROXY`/网络 |
 | 服务启动提示 `auth.master_key is unset` | 生产环境必须注入 `YD_AUTH_MASTER_KEY`；开发环境会回退并告警 |
 | 生产环境拒绝初始化种子 | 非 development 未配置 `YD_SEED_ADMIN_PASSWORD`；注入强口令后重启 |

@@ -464,7 +464,7 @@ func (c *Controller) setSession(ctx *router.Ctx, result *auth.LoginResult) {
 		MaxAge:   int(ttl.Seconds()),
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
-		Secure:   meta.IsProduction(),
+		Secure:   meta.Production(c.app.Config()),
 	})
 
 	c.log.Info("session established | 会话已建立",
@@ -484,6 +484,6 @@ func (c *Controller) clearSession(ctx *router.Ctx) {
 		MaxAge:   -1,
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
-		Secure:   meta.IsProduction(),
+		Secure:   meta.Production(c.app.Config()),
 	})
 }

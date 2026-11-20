@@ -10,6 +10,10 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+// legacyStatusAttached is the pre-2026-10 status value that marked a message-bound attachment. |
+// legacyStatusAttached 是 2026-10 之前表示附件已绑定消息的状态值。
+const legacyStatusAttached = "attached"
+
 // legacyAttachment is the pre-2026-10 attachment table. MigrateLegacy reads it and DropLegacy
 // removes it after the copy. | legacyAttachment 是 2026-10 之前的附件表；MigrateLegacy 读取它，
 // DropLegacy 在复制完成后删除它。
@@ -76,7 +80,7 @@ func MigrateLegacy(ctx context.Context, db *gorm.DB) (int, error) {
 					Status:       attachments.StatusPending,
 					Size:         row.Size,
 				}
-				if row.Status == "attached" && row.MessageID != nil && *row.MessageID != "" {
+				if row.Status == legacyStatusAttached && row.MessageID != nil && *row.MessageID != "" {
 					attachment.Status = attachments.StatusReferenced
 				}
 				result := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&attachment)

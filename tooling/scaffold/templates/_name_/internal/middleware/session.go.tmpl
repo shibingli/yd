@@ -5,6 +5,8 @@
 package middleware
 
 import (
+	"net/http"
+	"net/url"
 	"strings"
 
 	"{{ .Module }}/internal/meta"
@@ -69,6 +71,37 @@ func Promote(o SessionOptions) router.Middleware {
 		}
 
 		c.Request.Header.Set(o.Header, o.Prefix+token)
+		c.Next()
+	}
+}
+
+// OriginGuard rejects unsafe cross-site requests. Session tokens travel in a SameSite=Lax cookie, which already
+// stops a cross-site form POST from carrying them, but same-site subdomains and older browsers are weaker than
+// that default. The guard uses the browser's own Fetch Metadata first and falls back to Origin/Host comparison;
+// a request that carries neither header (curl, an API client) is allowed because it cannot ride a browser
+// cookie. | OriginGuard 拒绝不安全的跨站请求。会话令牌放在 SameSite=Lax cookie 中，跨站表单 POST 本就不会携带它，
+// 但同站子域与旧浏览器弱于这一默认值。守卫先用浏览器自身的 Fetch Metadata，再退回 Origin/Host 比较；
+// 两个头都不带的请求（curl、API 客户端）放行，因为它无法借浏览器 cookie 发起。
+func OriginGuard() router.Middleware {
+	return func(c *router.Ctx) {
+		switch c.Request.Method {
+		case http.MethodGet, http.MethodHead, http.MethodOptions, http.MethodTrace:
+			c.Next()
+			return
+		}
+		site := strings.ToLower(strings.TrimSpace(c.Header("Sec-Fetch-Site")))
+		if site != "" && site != "same-origin" && site != "none" {
+			_ = c.String(http.StatusForbidden, "cross-site request rejected | 跨站请求已拒绝")
+			return
+		}
+		origin := strings.TrimSpace(c.Header("Origin"))
+		if origin != "" {
+			parsed, err := url.Parse(origin)
+			if err != nil || parsed.Host == "" || !strings.EqualFold(parsed.Host, c.Request.Host) {
+				_ = c.String(http.StatusForbidden, "cross-origin request rejected | 跨源请求已拒绝")
+				return
+			}
+		}
 		c.Next()
 	}
 }

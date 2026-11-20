@@ -983,7 +983,7 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 		// Search swaps only the main pane: when HX-Target is yd-msg-main the server renders the result fragment
 		// alone, and neither the conversation rail nor the pinned strip takes part in this response.
 		resp, body = probeGetHX(t, admin, base+"/messages?q="+url.QueryEscape(probeMessageToken), adminToken,
-			map[string]string{"HX-Request": "true", "HX-Target": "yd-msg-main"})
+			map[string]string{"HX-Request": "true", "HX-Target": "section#yd-msg-main"})
 		requireProbeStatus(t, resp, body, http.StatusOK, "检索片段")
 		if strings.Contains(body, `id="yd-conversation-list"`) {
 			t.Errorf("检索片段不应包含会话栏:\n%s", body)
@@ -995,7 +995,7 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 		// 清空检索词时用 HX-Retarget 退回工作区，线程或欢迎页由完整页面片段恢复。
 		// Clearing the query retargets the workspace, and the full page fragment restores the thread or welcome panel.
 		resp, body = probeGetHX(t, admin, base+"/messages?q=", adminToken,
-			map[string]string{"HX-Request": "true", "HX-Target": "yd-msg-main"})
+			map[string]string{"HX-Request": "true", "HX-Target": "section#yd-msg-main"})
 		requireProbeStatus(t, resp, body, http.StatusOK, "清空检索")
 		if got := resp.Header.Get("HX-Retarget"); got != "#yd-workspace" {
 			t.Errorf("清空检索的 HX-Retarget = %q, 期望 #yd-workspace", got)

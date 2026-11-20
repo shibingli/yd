@@ -28,6 +28,10 @@
     confirmText: "[data-yd-confirm-text]"
   };
 
+  /* CLOSE_REASONS 是 htmx 实时扩展上报的关闭原因；字面量只在这里出现。 |
+     CLOSE_REASONS holds the close reasons reported by the htmx realtime extensions; the literals appear only here. */
+  var CLOSE_REASONS = {REMOVED: "removed", CLEANUP: "cleanup", CANCELLED: "cancelled", MESSAGE: "message"};
+
   /* 服务端事件名：与控制器的 meta.ToastEvent 一致。 | Server event names: they match meta.ToastEvent in the controller. */
   var EVENTS = {
     /* toast 由 HX-Trigger 下发，detail 形如 {level, text}。 | toast arrives through HX-Trigger with a detail shaped like {level, text}. */
@@ -382,7 +386,7 @@
     }
     var detail = realtimeEventDetail(event);
     var reason = detail.reason || "";
-    if (reason === "removed" || reason === "cleanup" || reason === "cancelled" || reason === "message" || !element.isConnected) {
+    if (reason === CLOSE_REASONS.REMOVED || reason === CLOSE_REASONS.CLEANUP || reason === CLOSE_REASONS.CANCELLED || reason === CLOSE_REASONS.MESSAGE || !element.isConnected) {
       delete element.__ydRealtime;
       refreshConnection();
       return;
@@ -441,7 +445,7 @@
     }
     var detail = realtimeEventDetail(event);
     var reason = detail.reason || "";
-    if (reason === "removed" || reason === "cancelled" || !element.isConnected) {
+    if (reason === CLOSE_REASONS.REMOVED || reason === CLOSE_REASONS.CANCELLED || !element.isConnected) {
       delete element.__ydRealtime;
       refreshConnection();
       return;
@@ -497,8 +501,8 @@
 
     elements = document.querySelectorAll("[hx-ws\\:connect]");
     for (var j = 0; j < elements.length; j++) {
-      var ws = elements[j]._htmx && elements[j]._htmx.ws && elements[j]._htmx.websocket.connection;
-      if (!ws || !websocket.socket) {
+      var ws = elements[j]._htmx && elements[j]._htmx.ws && elements[j]._htmx.ws.connection;
+      if (!ws || !ws.socket) {
         continue;
       }
       retried = true;
@@ -506,7 +510,7 @@
         /* 不传状态码：浏览器在这里只允许 1000 与 3000-4999，而无状态码的关闭会以 1005 上报，
            扩展正是据此重连。 | No status code: browsers only allow 1000 and 3000-4999 here, and a bare
            close surfaces as 1005, which the extension reconnects on. */
-        websocket.socket.close();
+        ws.socket.close();
       } catch (error) {
         /* a socket already leaving has nothing left to retry | 已在关闭的套接字无需再重试 */
       }
@@ -984,6 +988,91 @@
     appendNotice(detail.text || detail.value, detail.level);
   });
 
+  /* 未声明的 4xx/5xx 不能直接换入请求的 hx-target：htmx 4 在 hx-status 未命中时照常交换，会把错误片段
+     换进 #yd-workspace 或某个面板，页面因此被替换。这里把这类响应改投最近的错误槽位，并保留原页面。 |
+     An undeclared 4xx/5xx must not swap into the request's hx-target: htmx 4 swaps normally when no
+     hx-status matches, which would replace #yd-workspace or a panel with the error fragment. This
+     redirects such responses to the nearest error outlet and keeps the page intact. */
+  function swapStatusCode(detail) {
+    var ctx = detail.ctx || {};
+    if (typeof ctx.status === "number") {
+      return ctx.status;
+    }
+    if (ctx.response && typeof ctx.response.status === "number") {
+      return ctx.response.status;
+    }
+    if (detail.xhr && typeof detail.xhr.status === "number") {
+      return detail.xhr.status;
+    }
+    return 0;
+  }
+
+  function statusDeclared(element, code) {
+    var hundred = Math.floor(code / 100) * 100;
+    var names = ["hx-status:" + code, "hx-status:" + hundred];
+    for (var node = element; node && node.getAttribute; node = node.parentElement) {
+      for (var i = 0; i < names.length; i++) {
+        if (node.hasAttribute(names[i])) {
+          return true;
+        }
+      }
+      if (node === document.body) {
+        break;
+      }
+    }
+    return false;
+  }
+
+  function errorOutlet(element) {
+    if (element && element.closest && element.closest("#yd-drawer")) {
+      return document.getElementById("yd-drawer-errors") || document.getElementById("yd-errors");
+    }
+    return document.getElementById("yd-errors");
+  }
+
+  document.addEventListener("htmx:before:swap", function (event) {
+    var detail = event.detail || {};
+    var code = swapStatusCode(detail);
+    if (code < 400) {
+      return;
+    }
+    var ctx = detail.ctx || {};
+    var source = ctx.sourceElement || detail.elt;
+    if (statusDeclared(source, code)) {
+      return;
+    }
+    var outlet = errorOutlet(source);
+    if (!outlet) {
+      return;
+    }
+    var html = ctx.text || detail.serverResponse || "";
+    if (html) {
+      outlet.innerHTML = html;
+    }
+    detail.shouldSwap = false;
+    event.preventDefault();
+    if (!outlet.hasAttribute("tabindex")) {
+      outlet.setAttribute("tabindex", "-1");
+    }
+    if (typeof outlet.focus === "function") {
+      outlet.focus();
+    }
+  });
+
+  /* 2xx 之后清掉页面级旧错误：校验失败后重试成功，旧横幅不得继续显示。 |
+     Clear the page-level error after a 2xx: a successful retry must not leave the previous banner on screen. */
+  ["htmx:after:request", "htmx:afterRequest"].forEach(function (name) {
+    document.addEventListener(name, function (event) {
+      var code = swapStatusCode((event && event.detail) || {});
+      if (code >= 200 && code < 300) {
+        var slot = document.getElementById("yd-errors");
+        if (slot) {
+          slot.innerHTML = "";
+        }
+      }
+    });
+  });
+
   /* 消息 WebSocket 的 JSON 事件：扩展只在载荷含 content 时交换 DOM，因此不含 content 的事件会原样到达这里。
      这里只把它转成 DOM 事件，消息页的 yd-message.js 负责决定是否重取线程或会话列表；胶水层本身不写业务。
      JSON events of the message WebSocket: the extension swaps the DOM only when the payload carries content, so an
@@ -1298,7 +1387,11 @@
 
   /* 三态主题的存储键与顺序（顺序即按钮循环的顺序）。 | The storage key and the order of the three theme states, which is the order the button cycles through. */
   var THEME_KEY = "yd_theme";
-  var THEMES = ["light", "dark", "auto"];
+  /* THEMES 命名三种主题取值，THEME_ORDER 是按钮循环顺序；字面量只在这里出现。 |
+     THEMES names the three theme values and THEME_ORDER is the cycle order; the literals appear only here. */
+  var THEMES = {LIGHT: "light", DARK: "dark", AUTO: "auto"};
+  var THEME_ORDER = [THEMES.LIGHT, THEMES.DARK, THEMES.AUTO];
+  var THEME_AUTO = THEMES.AUTO;
 
   /* 语言 cookie 与 i18n 中间件的默认来源同名：不写这个 cookie，切换只对带查询参数的那一次请求有效。 */
   /* The language cookie carries the very name the i18n middleware reads by default: without it a switch would only last
@@ -1310,7 +1403,7 @@
   function readTheme() {
     try {
       var value = window.localStorage.getItem(THEME_KEY);
-      return THEMES.indexOf(value) >= 0 ? value : null;
+      return THEME_ORDER.indexOf(value) >= 0 ? value : null;
     } catch (error) {
       return null;
     }
@@ -1357,9 +1450,9 @@
      already have resolved data-theme to light or dark, and reading that would skip "follow system" on the
      first click. */
   function cycleTheme() {
-    var current = document.documentElement.getAttribute("data-yd-theme-choice") || readTheme() || THEMES[0];
-    var index = THEMES.indexOf(current);
-    var next = THEMES[(index + 1) % THEMES.length];
+    var current = document.documentElement.getAttribute("data-yd-theme-choice") || readTheme() || THEME_ORDER[0];
+    var index = THEME_ORDER.indexOf(current);
+    var next = THEME_ORDER[(index + 1) % THEME_ORDER.length];
     applyTheme(next);
     rememberTheme(next);
     return next;
@@ -1384,7 +1477,7 @@
   /* The stored theme is applied at first paint: the boot script already wrote the resolved value on <html> in
      <head>, and this only fills in the button attributes and the choice state; the stylesheet keys the first-frame
      label off data-yd-theme-choice, so a late script cannot shift the layout. */
-  applyTheme(readTheme() || document.documentElement.getAttribute("data-yd-theme-choice") || "auto");
+  applyTheme(readTheme() || document.documentElement.getAttribute("data-yd-theme-choice") || THEME_AUTO);
 
   /* htmx 交换会用服务端片段替换主题按钮：片段本身不带按钮属性，交换后按 <html> 上的选择重新补齐，
      aria-pressed 与 data-yd-theme-state 因此不会停留在缺失状态。 |
@@ -1392,7 +1485,7 @@
      from the choice on <html> so aria-pressed and data-yd-theme-state never stay missing. */
   ["htmx:after:swap", "htmx:afterSwap"].forEach(function (name) {
     document.addEventListener(name, function () {
-      applyTheme(document.documentElement.getAttribute("data-yd-theme-choice") || readTheme() || "auto");
+      applyTheme(document.documentElement.getAttribute("data-yd-theme-choice") || readTheme() || THEME_AUTO);
     });
   });
 

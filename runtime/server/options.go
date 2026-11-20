@@ -24,10 +24,10 @@ type TLSConfig struct {
 
 // HTTP3Config describes the QUIC listener. | HTTP3Config 描述 QUIC 监听配置。
 type HTTP3Config struct {
-	// Enabled turns on the HTTP/3 (QUIC) listener. | Enabled 为 HTTP/3（QUIC）监听开关。
-	Enabled bool
 	// Port is the UDP port; 0 means "same as the TCP port". | Port 为 UDP 端口，0 表示与 TCP 端口相同。
 	Port int
+	// Enabled turns on the HTTP/3 (QUIC) listener. | Enabled 为 HTTP/3（QUIC）监听开关。
+	Enabled bool
 	// WebTransport enables WebTransport sessions on the same QUIC listener. It
 	// requires Enabled and a TLS certificate. | WebTransport 在同一条 QUIC 监听上
 	// 启用 WebTransport 会话；要求 Enabled 为真且已配置 TLS 证书。
@@ -78,6 +78,13 @@ type Options struct {
 	IdleTimeout time.Duration
 	// ShutdownTimeout bounds graceful shutdown. | ShutdownTimeout 限定优雅退出的最长等待。
 	ShutdownTimeout time.Duration
+	// ShutdownByCaller makes Run stop serving and return without shutting down; the caller then
+	// calls Shutdown with its own context. App.Run sets it so the HTTP drain, long-lived
+	// connections and application hooks all share one grace period instead of consuming the
+	// configured timeout twice. | ShutdownByCaller 使 Run 停止服务后直接返回、不执行关闭；调用方随后
+	// 用自己的上下文调用 Shutdown。App.Run 设置它，使 HTTP 排空、长连接与应用钩子共享同一个宽限期，
+	// 而不是把配置的超时消耗两次。
+	ShutdownByCaller bool
 
 	// H2C enables cleartext HTTP/2 (h2c) on the same port. | H2C 在同端口开启明文 HTTP/2（h2c）。
 	H2C bool

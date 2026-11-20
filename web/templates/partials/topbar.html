@@ -63,9 +63,9 @@
 
     <button type="button" class="yd-icon-btn yd-theme-toggle" data-yd-theme-toggle aria-pressed="false"
             data-yd-i18n-attr="aria-label:topbar.theme.toggle" aria-label="{{tr "topbar.theme.toggle"}}">
-      <span class="yd-theme__glyph" data-yd-theme-glyph="light">{{template "partials/icon" "lucide-sun"}}</span>
-      <span class="yd-theme__glyph" data-yd-theme-glyph="dark">{{template "partials/icon" "lucide-moon"}}</span>
-      <span class="yd-theme__glyph" data-yd-theme-glyph="system">{{template "partials/icon" "lucide-monitor"}}</span>
+      <span class="yd-theme__glyph" data-yd-theme-glyph="{{ .Values.ThemeLight }}">{{template "partials/icon" "lucide-sun"}}</span>
+      <span class="yd-theme__glyph" data-yd-theme-glyph="{{ .Values.ThemeDark }}">{{template "partials/icon" "lucide-moon"}}</span>
+      <span class="yd-theme__glyph" data-yd-theme-glyph="{{ .Values.ThemeSystem }}">{{template "partials/icon" "lucide-monitor"}}</span>
       <span class="sr-only" data-yd-i18n="topbar.theme.toggle">{{tr "topbar.theme.toggle"}}</span>
     </button>
 

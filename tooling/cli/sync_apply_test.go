@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -18,8 +19,18 @@ type failOnWriteFS struct {
 
 // OpenFile implements afero.Fs. | OpenFile 实现 afero.Fs。
 func (f *failOnWriteFS) OpenFile(name string, flag int, perm os.FileMode) (afero.File, error) {
-	if filepath.ToSlash(name) == filepath.ToSlash(f.failPath) && flag&os.O_WRONLY != 0 {
-		return nil, errors.New("injected write failure")
+	if flag&(os.O_WRONLY|os.O_RDWR) != 0 {
+		slash := filepath.ToSlash(name)
+		target := filepath.ToSlash(f.failPath)
+		// Atomic writes touch a dot-prefixed temporary sibling first; failing that write proves
+		// the target is left untouched and the rollback restores earlier files. |
+		// 原子写入先创建同目录的点前缀临时文件；让该写入失败即可证明目标未被改动且回滚恢复了
+		// 之前的文件。
+		if slash == target ||
+			(filepath.ToSlash(filepath.Dir(name)) == filepath.ToSlash(filepath.Dir(f.failPath)) &&
+				strings.Contains(filepath.ToSlash(filepath.Base(name)), ".tmp-")) {
+			return nil, errors.New("injected write failure")
+		}
 	}
 	return f.Fs.OpenFile(name, flag, perm)
 }

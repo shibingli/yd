@@ -31,7 +31,7 @@
           {{- with .Category }}<p class="yd-table__hint">{{ . }}</p>{{ end }}
         </td>
         <td class="yd-table__td">{{ .InitiatorName }}</td>
-        <td class="yd-table__td">{{ template "partials/workflows/instance_badge" (dict "Status" .Status "Outcome" .Outcome) }}</td>
+        <td class="yd-table__td">{{ template "partials/workflows/instance_badge" (dict "Status" .Status "Outcome" .Outcome "Badges" $.WorkflowInstanceBadges "OutcomeBadges" $.WorkflowOutcomeBadges) }}</td>
         <td class="yd-table__td">{{ .StartedAt.Format "2006-01-02 15:04" }}</td>
         <td class="yd-table__td yd-table__td--actions">
           <details class="yd-menu" data-yd-menu>
@@ -41,7 +41,7 @@
                       hx-get="/mgr/workflow-instances/{{ .ID }}" hx-target="#yd-drawer-body" hx-swap="innerHTML">
                 {{ template "partials/icon" "lucide-eye" }}{{ tr "workflow.instances.detail" }}
               </button>
-              {{- if and $.CanAdmin (eq .Status "running") }}
+              {{- if and $.CanAdmin (eq .Status $.WorkflowInstanceRunning) }}
               <form method="post" action="/mgr/workflow-instances/{{ .ID }}/withdraw"
                     hx-post="/mgr/workflow-instances/{{ .ID }}/withdraw" hx-target="#yd-workspace" hx-swap="innerMorph"
                     hx-status:409="target:#yd-errors swap:innerHTML"

@@ -13,6 +13,7 @@ import (
 
 	"{{ .YdModule }}/messaging"
 	"{{ .YdModule }}/messaging/realtime"
+	"{{ .YdModule }}/security/auth"
 	"{{ .YdModule }}/security/authz"
 	"{{ .YdxModule }}/json"
 	"{{ .YdxModule }}/log"
@@ -75,6 +76,7 @@ func (c *Controller) MessageSocket() router.HandlerFunc {
 		var unsubscribe func()
 		handler := websocket.HtmxHandler(websocket.HtmxOptions{
 			Subprotocols: []string{"htmx"},
+			Options:      websocket.Options{Tracker: wsConnSet},
 			OnOpen: func(conn *websocket.Conn) {
 				unsubscribe = c.hub.Subscribe(realtime.Subscription{
 					TenantID:       actor.TenantID,
@@ -102,9 +104,33 @@ func (c *Controller) MessageSocket() router.HandlerFunc {
 	}
 }
 
+// messageActorStillAllowed re-reads the actor's membership and capability for one inbound WebSocket
+// message. The lookup is bounded so a slow database cannot stall the read loop indefinitely; any
+// error, a missing membership or a non-active user fails closed. |
+// messageActorStillAllowed 为一条入站 WebSocket 消息重新读取操作者的成员关系与能力。查询有界，
+// 慢数据库不能无限阻塞读循环；任何错误、成员关系缺失或非激活用户都失败关闭。
+func (c *Controller) messageActorStillAllowed(ctx context.Context, actor messaging.Actor, permission auth.Permission) bool {
+	checkCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	user, err := c.store.Auth().GetUser(checkCtx, actor.TenantID, actor.ID)
+	if err != nil || user == nil || user.Status != auth.StatusActive {
+		return false
+	}
+	return c.auth.HasPermission(user, permission)
+}
+
 // handleMessageSocketInput handles one inbound htmx message. | handleMessageSocketInput 处理一条入站 htmx 消息。
 func (c *Controller) handleMessageSocketInput(conn *websocket.Conn, actor messaging.Actor, lang string, canSend bool, msg websocket.HtmxMessage) {
 	action := valueString(msg.Values[FieldAction])
+	// 每条非 ping 入站消息都重新校验用户状态与能力：停用、删除、撤权或轮换 sec_key 之后，长连接
+	// 不得继续写入；Cookie 的 SameSite 与 HTTP 中间件只保护新请求，保护不了既有连接。 |
+	// Every non-ping inbound message revalidates the user's status and capability: after a disable,
+	// delete, revocation or sec_key rotation an existing long-lived connection must not keep writing;
+	// SameSite cookies and the HTTP middleware protect new requests only, never a connection already open.
+	if action != messageActionPing && !c.messageActorStillAllowed(context.Background(), actor, authz.PermMessageRead) {
+		_ = conn.Close(websocket.ClosePolicyViolation, "access revoked | 权限已撤销")
+		return
+	}
 	switch action {
 	case messageActionPing:
 		return
@@ -117,7 +143,7 @@ func (c *Controller) handleMessageSocketInput(conn *websocket.Conn, actor messag
 			c.pushSocketNotice(conn, lang, "message.notice.failed")
 		}
 	case messageActionSend:
-		if !canSend {
+		if !canSend || !c.messageActorStillAllowed(context.Background(), actor, authz.PermMessageSend) {
 			c.pushSocketNotice(conn, lang, "message.notice.forbidden")
 			return
 		}

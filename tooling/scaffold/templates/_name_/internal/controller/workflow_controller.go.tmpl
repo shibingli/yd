@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"{{ .Module }}/internal/model"
 	"{{ .YdModule }}/security/authz"
 	"{{ .YdxModule }}/errs"
 	"{{ .YdxModule }}/json"
@@ -29,6 +30,12 @@ type workflowDefinitionView struct {
 	Draft workflow.VersionSummary
 	// CanManage reports whether the caller may mutate this definition. | CanManage 报告调用方能否修改该定义。
 	CanManage bool
+	// Badge is the status badge of this row. | Badge 是本行的状态徽标。
+	Badge workflowBadge
+	// NextStatus is the state the toggle posts. | NextStatus 是启停按钮提交的目标状态。
+	NextStatus string
+	// IsDisabled reports whether the definition is currently disabled. | IsDisabled 报告定义当前是否停用。
+	IsDisabled bool
 }
 
 // Workflows renders the process-definition workbench. | Workflows 渲染流程定义工作台。
@@ -154,6 +161,9 @@ func (c *Controller) workflowDefinitionRows(ctx *router.Ctx, tenantID string, fi
 		view := workflowDefinitionView{
 			Definition: definition,
 			CanManage:  c.workflowCanManage(ctx),
+			Badge:      workflowDefinitionBadge(definition.Status),
+			NextStatus: workflowDefinitionNextStatus(definition.Status),
+			IsDisabled: definition.Status == workflow.DefinitionDisabled,
 		}
 		for _, version := range summaries {
 			if version.Status == workflow.VersionDraft && view.Draft.ID == "" {
@@ -188,7 +198,8 @@ func (c *Controller) NewWorkflowDrawer(ctx *router.Ctx) {
 	}
 	c.render(ctx, http.StatusOK, TplWorkflowDefinitionDrawer, c.view(ctx, "新建流程 | New workflow", map[string]any{
 		"Definition": workflow.Definition{Status: workflow.DefinitionDraft},
-		"Mode":       "create",
+		"Mode":       formModeCreate,
+		"IsEdit":       false,
 	}))
 }
 
@@ -218,7 +229,8 @@ func (c *Controller) EditWorkflowDrawer(ctx *router.Ctx) {
 	}
 	c.render(ctx, http.StatusOK, TplWorkflowDefinitionDrawer, c.view(ctx, "编辑流程 | Edit workflow", map[string]any{
 		"Definition": definition,
-		"Mode":       "edit",
+		"Mode":       formModeEdit,
+		"IsEdit":       true,
 	}))
 }
 
@@ -432,6 +444,7 @@ func (c *Controller) WorkflowDesigner(ctx *router.Ctx) {
 		"DesignJSON":      version.Design,
 		"DirectoryJSON":   directory,
 		"CanManage":       c.workflowCanManage(ctx),
+		"IsDraftVersion":  version.Status == workflow.VersionDraft,
 		"PageScripts":     []string{"/static/js/yd-workflow-designer.js"},
 	})
 	data[render.LayoutKey] = LayoutMgr
@@ -494,8 +507,11 @@ func defaultWorkflowDesign() workflow.Design {
 	return design
 }
 
-// workflowDirectoryJSON renders users, roles and groups for the designer pickers. | workflowDirectoryJSON
-// 为设计器选择器渲染用户、角色与流程组。
+// workflowDirectoryJSON renders users, roles and groups for the designer pickers. Disabled members
+// and disabled groups are omitted because the engine never resolves them as approvers; the group
+// list is read page by page so a large group table is not silently truncated at one page. |
+// workflowDirectoryJSON 为设计器选择器渲染用户、角色与流程组。停用成员与停用流程组被排除，因为
+// 引擎不会把他们解析为审批人；流程组逐页读取，大型流程组表不会被静默截断在一页。
 func (c *Controller) workflowDirectoryJSON(ctx *router.Ctx, tenantID string) (string, error) {
 	users, err := c.users.List(ctx.Request.Context(), tenantID, "")
 	if err != nil {
@@ -505,7 +521,7 @@ func (c *Controller) workflowDirectoryJSON(ctx *router.Ctx, tenantID string) (st
 	if err != nil {
 		return "", err
 	}
-	groups, err := c.workflow.ListGroups(ctx.Request.Context(), tenantID, workflow.GroupFilter{Page: 1, PageSize: 100})
+	groups, err := c.workflowEnabledGroups(ctx, tenantID)
 	if err != nil {
 		return "", err
 	}
@@ -526,15 +542,18 @@ func (c *Controller) workflowDirectoryJSON(ctx *router.Ctx, tenantID string) (st
 	}{
 		Users:  make([]directoryUser, 0, len(users)),
 		Roles:  make([]string, 0, len(roles)),
-		Groups: make([]directoryGroup, 0, len(groups.Items)),
+		Groups: make([]directoryGroup, 0, len(groups)),
 	}
 	for _, user := range users {
+		if user.Status != model.StatusActive {
+			continue
+		}
 		directory.Users = append(directory.Users, directoryUser{ID: user.ID, Name: user.DisplayName, Username: user.Username})
 	}
 	for _, role := range roles {
 		directory.Roles = append(directory.Roles, role.Name)
 	}
-	for _, group := range groups.Items {
+	for _, group := range groups {
 		directory.Groups = append(directory.Groups, directoryGroup{Key: group.Key, Name: group.Name, Role: group.Role})
 	}
 	data, err := json.Marshal(directory)
@@ -542,6 +561,35 @@ func (c *Controller) workflowDirectoryJSON(ctx *router.Ctx, tenantID string) (st
 		return "", errs.Wrap(err, workflow.ErrInvalidInput)
 	}
 	return string(data), nil
+}
+
+// workflowEnabledGroups reads every enabled group without truncating the picker at one page. |
+// workflowEnabledGroups 读取全部启用的流程组，选择器不会因单页上限被截断。
+func (c *Controller) workflowEnabledGroups(ctx *router.Ctx, tenantID string) ([]workflow.Group, error) {
+	const maxDirectoryPages = 100
+	pageSize := c.workflow.Options().MaxPageSize
+	if pageSize <= 0 {
+		pageSize = 100
+	}
+	enabled := make([]workflow.Group, 0, pageSize)
+	for pageNo := 1; pageNo <= maxDirectoryPages; pageNo++ {
+		page, err := c.workflow.ListGroups(ctx.Request.Context(), tenantID, workflow.GroupFilter{
+			Status: workflow.GroupEnabled, Page: pageNo, PageSize: pageSize,
+		})
+		if err != nil {
+			return nil, err
+		}
+		for _, group := range page.Items {
+			if group.Status == workflow.GroupEnabled {
+				enabled = append(enabled, group)
+			}
+		}
+		if len(page.Items) < pageSize {
+			return enabled, nil
+		}
+	}
+	c.log.Warn("workflow directory stopped after the page cap; some groups are omitted | 流程目录达到页数上限，部分流程组被省略")
+	return enabled, nil
 }
 
 // WorkflowVersions renders the version drawer. | WorkflowVersions 渲染版本抽屉。
@@ -656,6 +704,9 @@ func (c *Controller) PublishWorkflowVersion(ctx *router.Ctx) {
 	if !ok {
 		return
 	}
+	if _, ok := c.workflowVersionOfDefinition(ctx, tenantID, ctx.Param("id"), ctx.Param("version_id")); !ok {
+		return
+	}
 	actor := c.workflowActor(ctx)
 	if _, err := c.workflow.PublishVersion(ctx.Request.Context(), tenantID, ctx.Param("version_id"), actor.ID, field(ctx, FieldWorkflowNote)); err != nil {
 		c.failService(ctx, err)
@@ -663,6 +714,24 @@ func (c *Controller) PublishWorkflowVersion(ctx *router.Ctx) {
 	}
 	c.toast(ctx, "版本已发布 | Version published")
 	c.WorkflowVersions(ctx)
+}
+
+// workflowVersionOfDefinition loads one version and fails the request when it does not belong to
+// the definition in the URL. A mismatch and a missing version answer with the same 404 so the
+// endpoint cannot be used to probe versions of another definition. | workflowVersionOfDefinition
+// 读取一个版本，并在它不属于 URL 中的定义时结束请求。不匹配与不存在返回同一个 404，端点因此不能用
+// 来探测其它定义下的版本。
+func (c *Controller) workflowVersionOfDefinition(ctx *router.Ctx, tenantID, definitionID, versionID string) (workflow.Version, bool) {
+	version, err := c.workflow.GetVersion(ctx.Request.Context(), tenantID, versionID)
+	if err != nil {
+		c.failService(ctx, err)
+		return workflow.Version{}, false
+	}
+	if version.DefinitionID != definitionID {
+		c.failService(ctx, workflow.ErrNotFound)
+		return workflow.Version{}, false
+	}
+	return version, true
 }
 
 // DeleteWorkflowVersion removes one draft. | DeleteWorkflowVersion 删除一个草稿。
@@ -683,6 +752,9 @@ func (c *Controller) DeleteWorkflowVersion(ctx *router.Ctx) {
 	}
 	tenantID, ok := c.tenantID(ctx)
 	if !ok {
+		return
+	}
+	if _, ok := c.workflowVersionOfDefinition(ctx, tenantID, ctx.Param("id"), ctx.Param("version_id")); !ok {
 		return
 	}
 	if err := c.workflow.DeleteVersion(ctx.Request.Context(), tenantID, ctx.Param("version_id")); err != nil {
@@ -720,7 +792,7 @@ func (c *Controller) WorkflowExport(ctx *router.Ctx) {
 	if format == "" {
 		format = "json"
 	}
-	if format == "bpmn" {
+	if format == workflowFormatBPMN {
 		versionID := strings.TrimSpace(ctx.Query(FieldWorkflowVersion))
 		if versionID == "" {
 			definitionID := strings.TrimSpace(ctx.Query(FieldWorkflowFilterDefinition))
@@ -893,3 +965,124 @@ func workflowLongField(ctx *router.Ctx, name string, limit int) string {
 // compile-time assertion that errs stays referenced by the directory helper. |
 // 编译期断言，确保 errs 仍被目录辅助函数引用。
 var _ = errs.Wrap
+
+// workflowBadge is the tone and catalogue key of one workflow badge. Templates look badges up by
+// status instead of comparing raw strings, so a renamed engine constant cannot leave stale copy. |
+// workflowBadge 是一个流程徽标的色调与目录键。模板按状态查表，而不是比较裸字符串，引擎常量改名
+// 不会留下过期文案。
+type workflowBadge struct {
+	Tone     string
+	LabelKey string
+}
+
+// Instance outcomes are part of the persisted contract but the engine exposes no constants for
+// them; declare them once here instead of repeating the literals in templates. | 实例结果是持久化
+// 契约的一部分，但引擎没有导出对应常量；在这里声明一次，模板不再重复字面量。
+const (
+	workflowOutcomeApproved   = "approved"
+	workflowOutcomeRejected   = "rejected"
+	workflowOutcomeWithdrawn  = "withdrawn"
+	workflowOutcomeTerminated = "terminated"
+)
+
+// workflowInstanceBadgeMap maps instance statuses onto badges. | workflowInstanceBadgeMap 把实例状态映射为徽标。
+var workflowInstanceBadgeMap = map[string]workflowBadge{
+	workflow.InstanceRunning:    {Tone: "info", LabelKey: "workflow.instances.running"},
+	workflow.InstanceCompleted:  {Tone: "success", LabelKey: "workflow.instances.completed"},
+	workflow.InstanceWithdrawn:  {Tone: "muted", LabelKey: "workflow.instances.withdrawn"},
+	workflow.InstanceTerminated: {Tone: "warn", LabelKey: "workflow.instances.terminated"},
+}
+
+// workflowOutcomeBadgeMap maps instance outcomes onto badges; an outcome badge overrides the status
+// badge when present, which is how completed+rejected renders as rejected. | workflowOutcomeBadgeMap
+// 把实例结果映射为徽标；结果徽标存在时覆盖状态徽标，completed+rejected 因此显示为已拒绝。
+var workflowOutcomeBadgeMap = map[string]workflowBadge{
+	workflowOutcomeApproved:   {Tone: "success", LabelKey: "workflow.instances.completed"},
+	workflowOutcomeRejected:   {Tone: "danger", LabelKey: "workflow.instances.rejected"},
+	workflowOutcomeWithdrawn:  {Tone: "muted", LabelKey: "workflow.instances.withdrawn"},
+	workflowOutcomeTerminated: {Tone: "warn", LabelKey: "workflow.instances.terminated"},
+}
+
+// workflowOutcomeLabelMap maps instance outcomes onto catalogue keys. | workflowOutcomeLabelMap 把实例结果映射为目录键。
+var workflowOutcomeLabelMap = map[string]string{
+	workflowOutcomeApproved:   "workflow.outcome.approved",
+	workflowOutcomeRejected:   "workflow.outcome.rejected",
+	workflowOutcomeWithdrawn:  "workflow.outcome.withdrawn",
+	workflowOutcomeTerminated: "workflow.outcome.terminated",
+}
+
+// workflowTaskBadgeMap maps task statuses onto badges. | workflowTaskBadgeMap 把任务状态映射为徽标。
+var workflowTaskBadgeMap = map[string]workflowBadge{
+	workflow.TaskPending:   {Tone: "info", LabelKey: "workflow.task.pending"},
+	workflow.TaskClaimed:   {Tone: "info", LabelKey: "workflow.task.claimed"},
+	workflow.TaskCompleted: {Tone: "success", LabelKey: "workflow.task.completed"},
+	workflow.TaskCancelled: {Tone: "muted", LabelKey: "workflow.task.cancelled"},
+	workflow.TaskQueued:    {Tone: "muted", LabelKey: "workflow.task.queued"},
+}
+
+// workflowDecisionLabelMap maps task decisions onto catalogue keys. | workflowDecisionLabelMap 把任务决策映射为目录键。
+var workflowDecisionLabelMap = map[string]string{
+	workflow.DecisionApprove: "workflow.decision.approve",
+	workflow.DecisionReject:  "workflow.decision.reject",
+	workflow.DecisionNone:    "workflow.decision.none",
+}
+
+// workflowEventLabelMap maps instance event types onto catalogue keys. | workflowEventLabelMap 把实例事件类型映射为目录键。
+var workflowEventLabelMap = map[string]string{
+	workflow.EventInstanceStarted:    "workflow.event.instance_started",
+	workflow.EventInstanceCompleted:  "workflow.event.instance_completed",
+	workflow.EventInstanceRejected:   "workflow.event.instance_rejected",
+	workflow.EventInstanceWithdrawn:  "workflow.event.instance_withdrawn",
+	workflow.EventInstanceTerminated: "workflow.event.instance_terminated",
+	workflow.EventNodeEntered:        "workflow.event.node_entered",
+	workflow.EventTaskCreated:        "workflow.event.task_created",
+	workflow.EventTaskClaimed:        "workflow.event.task_claimed",
+	workflow.EventTaskApproved:       "workflow.event.task_approved",
+	workflow.EventTaskRejected:       "workflow.event.task_rejected",
+	workflow.EventTaskTransferred:    "workflow.event.task_transferred",
+	workflow.EventTaskDelegated:      "workflow.event.task_delegated",
+	workflow.EventTaskDelegatedBack:  "workflow.event.task_delegated_back",
+	workflow.EventTaskAdded:          "workflow.event.task_added",
+	workflow.EventTaskRemoved:        "workflow.event.task_removed",
+	workflow.EventTaskReturned:       "workflow.event.task_returned",
+	workflow.EventTaskReminded:       "workflow.event.task_reminded",
+	workflow.EventTaskAutoDecided:    "workflow.event.task_auto_decided",
+	workflow.EventCommentAdded:       "workflow.event.comment_added",
+}
+
+// workflowDefinitionBadgeMap maps definition lifecycle states onto badges. | workflowDefinitionBadgeMap 把定义生命周期状态映射为徽标。
+var workflowDefinitionBadgeMap = map[string]workflowBadge{
+	workflow.DefinitionDraft:     {Tone: "muted", LabelKey: "workflow.status.draft"},
+	workflow.DefinitionPublished: {Tone: "success", LabelKey: "workflow.status.published"},
+	workflow.DefinitionDisabled:  {Tone: "warn", LabelKey: "workflow.status.disabled"},
+}
+
+// workflowVersionBadgeMap maps version states onto badges. | workflowVersionBadgeMap 把版本状态映射为徽标。
+var workflowVersionBadgeMap = map[string]workflowBadge{
+	workflow.VersionDraft:     {Tone: "muted", LabelKey: "workflow.version.draft"},
+	workflow.VersionPublished: {Tone: "success", LabelKey: "workflow.version.published"},
+}
+
+// workflowGroupBadgeMap maps group states onto badges. | workflowGroupBadgeMap 把流程组状态映射为徽标。
+var workflowGroupBadgeMap = map[string]workflowBadge{
+	workflow.GroupEnabled:  {Tone: "success", LabelKey: "status.active"},
+	workflow.GroupDisabled: {Tone: "muted", LabelKey: "status.disabled"},
+}
+
+// workflowDefinitionBadge returns the badge of one definition state. | workflowDefinitionBadge
+// 返回一个定义状态的徽标。
+func workflowDefinitionBadge(status string) workflowBadge {
+	if badge, ok := workflowDefinitionBadgeMap[status]; ok {
+		return badge
+	}
+	return workflowDefinitionBadgeMap[workflow.DefinitionDraft]
+}
+
+// workflowDefinitionNextStatus returns the state the definition toggle posts. | workflowDefinitionNextStatus
+// 返回定义启停按钮提交的目标状态。
+func workflowDefinitionNextStatus(status string) string {
+	if status == workflow.DefinitionDisabled {
+		return workflow.DefinitionPublished
+	}
+	return workflow.DefinitionDisabled
+}

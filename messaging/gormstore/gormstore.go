@@ -30,6 +30,8 @@ var (
 	ErrMigrate = errs.New("message schema migration failed | 消息数据表迁移失败")
 	// ErrQuery reports a failed statement. | ErrQuery 表示语句执行失败。
 	ErrQuery = errs.New("message statement failed | 消息语句执行失败")
+	// ErrConflict reports a unique-key conflict on a message row. | ErrConflict 表示消息记录的唯一键冲突。
+	ErrConflict = errs.New("message row already exists | 消息记录已存在")
 )
 
 // Store implements messaging.Store over GORM. | Store 基于 GORM 实现 messaging.Store。
@@ -99,8 +101,8 @@ func queryError(err error) error {
 	return errs.Wrap(err, ErrQuery)
 }
 
-// createError maps a statement error, preserving not-found and recognising duplicate keys. |
-// createError 映射语句错误，保留未找到语义并识别重复键。
+// createError maps a statement error, preserving not-found and mapping duplicate keys onto an explicit
+// conflict sentinel. | createError 映射语句错误，保留未找到语义，并把重复键映射为明确的冲突哨兵。
 func createError(err error) error {
 	if err == nil {
 		return nil
@@ -108,7 +110,64 @@ func createError(err error) error {
 	if mapped := notFound(err); mapped != nil {
 		return mapped
 	}
+	if errors.Is(err, gorm.ErrDuplicatedKey) {
+		return errs.Wrap(err, ErrConflict)
+	}
 	return errs.Wrap(err, ErrQuery)
+}
+
+// deadlockRetries bounds the retry of a transaction that lost to a database deadlock. |
+// deadlockRetries 限制输给数据库死锁的事务重试次数。
+const deadlockRetries = 3
+
+// retryTransaction runs fn in a transaction, retrying a bounded number of times when the engine reports
+// a deadlock or lock-wait conflict. The classification uses driver-provided interfaces instead of
+// matching error strings. | retryTransaction 在事务中执行 fn；引擎报告死锁或锁等待冲突时做有限重试。
+// 分类依赖驱动提供的接口，不做错误字符串匹配。
+func (s *Store) retryTransaction(ctx context.Context, tables []string, fn func(*gorm.DB) error) error {
+	var err error
+	for attempt := 0; attempt < deadlockRetries; attempt++ {
+		err = s.transaction(ctx, tables, fn)
+		if !isRetryableLockConflict(err) {
+			return err
+		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+	}
+	return err
+}
+
+// isRetryableLockConflict reports engine deadlocks and lock-wait timeouts. MySQL exposes Number(),
+// PostgreSQL exposes SQLState() and the pure-Go SQLite driver exposes Code(); none of them requires
+// importing the driver into this package. | isRetryableLockConflict 报告引擎死锁与锁等待超时。
+// MySQL 暴露 Number()，PostgreSQL 暴露 SQLState()，纯 Go SQLite 驱动暴露 Code()；本包无需引入任何驱动。
+func isRetryableLockConflict(err error) bool {
+	if err == nil {
+		return false
+	}
+	var state interface{ SQLState() string }
+	if errors.As(err, &state) {
+		switch state.SQLState() {
+		case "40P01", "40001": // deadlock_detected, serialization_failure | 死锁、序列化失败
+			return true
+		}
+	}
+	var number interface{ Number() uint16 }
+	if errors.As(err, &number) {
+		switch number.Number() {
+		case 1213, 1205: // ER_LOCK_DEADLOCK, ER_LOCK_WAIT_TIMEOUT | MySQL 死锁、锁等待超时
+			return true
+		}
+	}
+	var code interface{ Code() int }
+	if errors.As(err, &code) {
+		switch code.Code() & 0xff {
+		case 5, 6: // SQLITE_BUSY, SQLITE_LOCKED | SQLite 忙、被锁
+			return true
+		}
+	}
+	return false
 }
 
 // rowsError turns a zero affected-row delete into not-found. | rowsError 把零影响行删除转成未找到。

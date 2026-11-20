@@ -5,17 +5,51 @@
 package controller
 
 import (
+	"context"
 	"html"
 	"net/http"
 	"strings"
 	"time"
 
 	"{{ .Module }}/internal/service"
+	"{{ .YdModule }}/runtime/app"
 	"{{ .YdxModule }}/log"
 	"{{ .YdxModule }}/router"
 	"{{ .YdxModule }}/sse"
 	"{{ .YdxModule }}/websocket"
 )
+
+// 实时通道的追踪器：所有 WebSocket 连接与 SSE 事件流都登记在同一份集合里，退出时一次关闭。
+// 没有登记，HTTP/1.1 WebSocket 只能等到排空超时后被 hijack 强关，HTTP/2/3 WebSocket 根本不会被强关，
+// SSE 也收不到最终注释帧并会把排空拖满整个宽限期。 |
+// The realtime trackers: every WebSocket connection and SSE stream registers in one shared set and is
+// closed in one call at shutdown. Without registration an HTTP/1.1 WebSocket would wait for the drain
+// timeout and then be force-closed through the hijack path, an HTTP/2/3 WebSocket would never be forced
+// at all, and an SSE stream would miss its final comment frame while holding the drain to the deadline.
+var (
+	wsConnSet  = websocket.NewConnSet()
+	sseTracker *sse.WriterSet
+)
+
+// TrackRealtime wires the shared trackers and registers their shutdown hooks. It is called once by the
+// router assembly after the broker exists and before any route can open a stream. |
+// TrackRealtime 装配共享追踪器并登记退出钩子。路由装配在广播器创建后、任何路由能打开数据流之前调用一次。
+func TrackRealtime(a *app.App, broker *sse.Broker) {
+	if a == nil {
+		return
+	}
+	sseTracker = sse.NewWriterSet(broker)
+	a.Lifecycle().Add("sse-streams", func(context.Context) error {
+		if sseTracker != nil {
+			sseTracker.Shutdown()
+		}
+		return nil
+	})
+	a.Lifecycle().Add("websocket-connections", func(context.Context) error {
+		wsConnSet.CloseAll(websocket.CloseGoingAway, "server shutdown | 服务器正在退出")
+		return nil
+	})
+}
 
 // 推送端点的时间参数：心跳与重连间隔是前端体验参数，与推送间隔分开配置。
 // Timing of the push endpoints: the heartbeat and the reconnect interval shape the front-end experience and are kept
@@ -81,6 +115,7 @@ func (c *Controller) Stream(broker *sse.Broker) router.HandlerFunc {
 	return sse.Handler(broker, service.EventsTopic, sse.Options{
 		Heartbeat: heartbeatInterval,
 		Retry:     retryInterval,
+		Tracker:   sseTracker,
 	})
 }
 
@@ -123,6 +158,7 @@ func (c *Controller) Socket(ticker *service.Ticker) router.HandlerFunc {
 		// 子协议与 htmx 的 WebSocket 扩展一致；不声明它，浏览器可能拒绝握手。
 		// The subprotocol matches the htmx WebSocket extension; without it the browser may refuse the handshake.
 		Subprotocols: []string{"htmx"},
+		Options:      websocket.Options{Tracker: wsConnSet},
 		OnOpen: func(conn *websocket.Conn) {
 			go c.pushClock(conn, ticker)
 		},

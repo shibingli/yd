@@ -286,23 +286,24 @@ func TestGovernanceStatesNewConstraints(t *testing.T) {
 			"OpenAPI",                // OpenAPI 注解要求 | OpenAPI annotations
 			"ydx/json", "ydx/base64", // 编解码统一封装层 | codec wrappers
 			"ydx/errs", "fmt.Errorf", // 错误声明式哨兵 | declared sentinel errors
-			"sec_key",                 // 每用户 JWT 密钥 | per-user JWT key
-			"多租户",                     // 租户硬边界 | tenant boundary
-			"betteralign",             // 内存对齐要求 | memory alignment
-			"data-yd-i18n",            // 前端 i18n 约定 | frontend i18n contract
-			"优雅退出",                    // 关停顺序与长连接登记 | shutdown order and long-lived connection tracking
-			"kardianos",               // 服务化唯一入口 | the single service-manager entry point
-			"yd ko",                   // 无 Dockerfile 打包路径 | the Dockerfile-less packaging path
-			"yd tools",                // 外部工具统一入口 | the single entry point for external tools
-			"security/auth/gormstore", // 鉴权数据落库 | auth data lives in the database
-			"PresetDSN",               // 连接串预置 | connection-string presets
-			"_txlock",                 // SQLite 立即事务约束 | the SQLite immediate-transaction constraint
-			"yd authz check",          // 权限静态校验 | the permission linter
-			"data-yd-perm",            // 前端声明式权限判定 | declarative front-end capability guards
-			"不是安全边界",                  // 前端判定红线 | the front-end is not the enforcement point
-			"默认初始化",                   // 首启种子数据 | first-start seed data
-			"yd completion",           // Shell 补全入口 | the shell-completion entry point
-			"自动建库",                    // 库不存在时自动创建 | creating a missing database on connect
+			"sec_key",                       // 每用户 JWT 密钥 | per-user JWT key
+			"多租户",                           // 租户硬边界 | tenant boundary
+			"betteralign",                   // 内存对齐要求 | memory alignment
+			"data-yd-i18n",                  // 前端 i18n 约定 | frontend i18n contract
+			"优雅退出",                          // 关停顺序与长连接登记 | shutdown order and long-lived connection tracking
+			"kardianos",                     // 服务化唯一入口 | the single service-manager entry point
+			"yd ko",                         // 无 Dockerfile 打包路径 | the Dockerfile-less packaging path
+			"yd tools",                      // 外部工具统一入口 | the single entry point for external tools
+			"security/auth/gormstore",       // 鉴权数据落库 | auth data lives in the database
+			"PresetDSN",                     // 连接串预置 | connection-string presets
+			"_txlock",                       // SQLite 立即事务约束 | the SQLite immediate-transaction constraint
+			"yd authz check",                // 权限静态校验 | the permission linter
+			"data-yd-perm",                  // 前端声明式权限判定 | declarative front-end capability guards
+			"不是安全边界",                        // 前端判定红线 | the front-end is not the enforcement point
+			"默认初始化",                         // 首启种子数据 | first-start seed data
+			"yd completion",                 // Shell 补全入口 | the shell-completion entry point
+			"自动建库",                          // 库不存在时自动创建 | creating a missing database on connect
+			"TestDomainStringsStayConstant", // 领域字符串常量化守卫 | the domain-string constant guard
 		},
 		"AGENTS.md": {
 			"Co-Authored-By: Eric Shi <shibingli@sina.com>",
@@ -318,6 +319,7 @@ func TestGovernanceStatesNewConstraints(t *testing.T) {
 			"gormstore", // 鉴权数据落库 | auth data lives in the database
 			"PresetDSN", // 连接串预置 | connection-string presets
 			"无 CGO",     // 纯 Go 默认形态 | the CGO-free default build
+			"领域字符串常量化",  // 状态/动作等枚举不得裸写 | domain enums must be constants
 		},
 		"docs/developer_guidelines.md": {
 			"YD_",
@@ -328,6 +330,7 @@ func TestGovernanceStatesNewConstraints(t *testing.T) {
 			"betteralign",
 			"data-yd-i18n",
 			"优雅退出",
+			"领域枚举常量契约", // 状态/动作等枚举常量化 | domain enum constants
 		},
 	}
 	for name, wants := range checks {
@@ -851,6 +854,39 @@ func TestNoLegacyEnvPrefixInGoSources(t *testing.T) {
 		}
 		if strings.Contains(f.src, `SetEnvPrefix("YUNGO")`) {
 			t.Errorf("%s 仍在使用旧环境变量前缀 YUNGO，应改为 YD", f.rel)
+		}
+	}
+}
+
+// TestToolchainStaysOutOfProduction proves the dev process runner is never linked into the
+// framework's runtime or a generated application. The dev loop spawns and terminates child
+// processes; shipping it into production would turn an operational tool into a process-leak
+// surface. Only the yd CLI and the tools registry may import it. |
+// TestToolchainStaysOutOfProduction 证明开发进程运行器绝不会被链接进框架运行时或生成应用。
+// 开发循环会启动并终止子进程；把它带进生产会把运维工具变成进程泄漏面。只有 yd CLI 与工具注册表
+// 可以导入它。
+func TestToolchainStaysOutOfProduction(t *testing.T) {
+	const forbidden = "github.com/shibingli/yd/tooling/toolchain"
+	allowed := []string{
+		"tooling/cli/",
+		"tooling/tools/",
+		"tooling/toolchain/",
+		"repotest/", // the guard itself contains the import string | 守卫自身包含该导入字符串
+	}
+	for _, file := range scanGoFiles(t, repoRoot(t)) {
+		if !strings.Contains(file.src, `"`+forbidden+`"`) {
+			continue
+		}
+		ok := false
+		for _, prefix := range allowed {
+			if strings.HasPrefix(file.rel, prefix) {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			t.Errorf("%s imports %s; the dev child-process runner must stay out of production | %s 导入了 %s；开发子进程运行器不得进入生产",
+				file.rel, forbidden, file.rel, forbidden)
 		}
 	}
 }

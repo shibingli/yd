@@ -75,6 +75,13 @@ var (
 	ErrNilDB = errs.New("gormstore: nil *gorm.DB | gormstore：*gorm.DB 为空")
 	// ErrMigrateFailed reports a failed table or index migration. | ErrMigrateFailed 表示建表或建索引失败。
 	ErrMigrateFailed = errs.New("gormstore: migrate failed | gormstore：迁移失败")
+	// ErrMigrationIdentityConflict reports legacy auth rows that cannot be migrated to the global-identity schema:
+	// a duplicate user id or a duplicate sign-in name (case-folded). The migration stops before creating the unique
+	// indexes and reports how many conflicting groups exist, so an operator can merge the rows explicitly instead of
+	// losing one account to the unique index. | ErrMigrationIdentityConflict 表示旧鉴权数据无法迁移到全局身份模型：
+	// 用户 ID 重复，或登录名（大小写折叠后）重复。迁移会在创建唯一索引之前停止并报告冲突组数，运维因此可以显式合并
+	// 这些行，而不是让唯一索引悄悄丢掉一个账号。
+	ErrMigrationIdentityConflict = errs.New("gormstore: legacy auth data holds duplicate global user identities, merge the rows before migrating | gormstore：旧鉴权数据存在重复的全局用户身份，请先合并这些行再迁移")
 )
 
 // Table names of the four tables this package owns. | 本包拥有的四张表的表名。
@@ -188,11 +195,26 @@ func New(db *gorm.DB, o Options) (*Store, error) {
 // start is the intended usage. A nil db is refused with ErrNilDB and any failure is
 // wrapped into ErrMigrateFailed. | 它是幂等的：AutoMigrate 只补齐缺失的部分，因此每次启动都调用正是预期用法。
 // db 为空时以 ErrNilDB 拒绝，任何失败都包装进 ErrMigrateFailed。
+//
+// Legacy databases are inspected before AutoMigrate: when yd_auth_users exists but the global-uniqueness indexes do
+// not, duplicate ids or duplicate case-folded sign-in names are reported as ErrMigrationIdentityConflict. Without
+// that pre-check the index creation (or the backfill that follows) fails halfway and the caller only sees a driver
+// error, while a scaffold that degrades on any migration failure would silently start on an in-memory store and lose
+// every account. | 旧库会在 AutoMigrate 之前先做检查：若 yd_auth_users 已存在但全局唯一索引缺失，重复的 ID 或
+// 大小写折叠后重复的登录名会以 ErrMigrationIdentityConflict 报出。没有这道预检时，建索引（或随后的回填）会在中途
+// 失败，调用方只能看到驱动报文；而任何迁移失败都会降级的脚手架则可能静默改用内存实现，把全部账号留在了旧库里。
 func Migrate(ctx context.Context, db *gorm.DB) error {
 	if db == nil {
 		return ErrNilDB
 	}
-	if err := db.WithContext(ctx).AutoMigrate(
+	scoped := db.WithContext(ctx)
+	if err := checkLegacyIdentityConflicts(scoped); err != nil {
+		return err
+	}
+	if err := prepareLegacyIdentityColumns(scoped); err != nil {
+		return errs.Wrap(err, ErrMigrateFailed)
+	}
+	if err := scoped.AutoMigrate(
 		&tenantRow{},
 		&userRow{},
 		&userTenantRow{},
@@ -201,7 +223,117 @@ func Migrate(ctx context.Context, db *gorm.DB) error {
 	); err != nil {
 		return errs.Wrap(err, ErrMigrateFailed)
 	}
-	return errs.Wrap(backfillMemberships(db.WithContext(ctx)), ErrMigrateFailed)
+	return errs.Wrap(backfillMemberships(scoped), ErrMigrateFailed)
+}
+
+// checkLegacyIdentityConflicts refuses a legacy yd_auth_users table whose ids or folded sign-in names are not unique.
+// | checkLegacyIdentityConflicts 拒绝 ID 或折叠登录名不唯一的旧 yd_auth_users 表。
+//
+// The check runs only for a table that already exists and only for an index that is still missing: a table carrying
+// the uniqueness index cannot violate it, and a fresh database has no rows to inspect. The legacy table may predate
+// username_key, which is why the folded expression falls back to LOWER(TRIM(username)). | 该检查只针对已经存在、且
+// 唯一索引仍然缺失的表：带有唯一索引的表不可能违反它，而全新的库也没有可检查的行。旧表可能早于 username_key 列，
+// 因此折叠表达式会回退到 LOWER(TRIM(username))。
+func checkLegacyIdentityConflicts(db *gorm.DB) error {
+	if !db.Migrator().HasTable(tableUsers) {
+		return nil
+	}
+	if !db.Migrator().HasIndex(tableUsers, indexUsersID) && db.Migrator().HasColumn(tableUsers, "id") {
+		if err := assertNoDuplicateColumn(db, "id", "user id"); err != nil {
+			return err
+		}
+	}
+	if db.Migrator().HasIndex(tableUsers, indexUsersUsername) {
+		return nil
+	}
+	expression := "username_key"
+	column := "username_key"
+	hasKey := db.Migrator().HasColumn(tableUsers, "username_key")
+	hasName := db.Migrator().HasColumn(tableUsers, "username")
+	switch {
+	case hasKey && hasName:
+		// A key column added by an earlier partial migration may still be empty for every row, so the effective
+		// identity is the key when it has a value and the folded name otherwise. | 早期半途迁移新增的 key 列可能
+		// 整列为空，因此有效身份取「有值的 key，否则折叠后的名称」。
+		expression = "COALESCE(NULLIF(username_key, ''), LOWER(TRIM(username)))"
+		column = "username_key/username"
+	case hasKey:
+		expression = "username_key"
+		column = "username_key"
+	case hasName:
+		expression = "LOWER(TRIM(username))"
+		column = "username"
+	default:
+		// Neither column exists, so there is no identity to check; AutoMigrate will add the new column and the
+		// unique index, which is then enforced from the start. | 两列都不存在就没有身份可查；AutoMigrate 会新增
+		// 该列与唯一索引，唯一性从一开始就由索引保证。
+		return nil
+	}
+	return assertNoDuplicateExpression(db, expression, column)
+}
+
+// prepareLegacyIdentityColumns makes the folded uniqueness key writable before AutoMigrate creates its unique index.
+// | prepareLegacyIdentityColumns 在 AutoMigrate 创建唯一索引之前，让折叠后的唯一键可以写入。
+//
+// AutoMigrate adds username_key as NOT NULL. SQLite (and most engines) refuse to add a NOT NULL column without a
+// default to a table that already holds rows, so a legacy table without that column would abort the migration with a
+// driver error. Adding it here with an empty default and backfilling it from username keeps the migration working for
+// the pre-global-identity shape; the duplicate pre-check has already guaranteed the backfill is unique. | AutoMigrate
+// 会把 username_key 作为 NOT NULL 列加入。SQLite（以及多数引擎）拒绝向已有行的表添加无默认值的 NOT NULL 列，
+// 因此缺少该列的旧表会以驱动报文中止迁移。这里先以空串默认值加上该列，再由 username 回填，使全局身份模型之前
+// 的结构也能迁移；重复预检已经保证回填结果唯一。
+func prepareLegacyIdentityColumns(db *gorm.DB) error {
+	if !db.Migrator().HasTable(tableUsers) {
+		return nil
+	}
+	hasName := db.Migrator().HasColumn(tableUsers, "username")
+	if !db.Migrator().HasColumn(tableUsers, "username_key") {
+		if !hasName {
+			return nil
+		}
+		if err := db.Exec("ALTER TABLE " + tableUsers + " ADD COLUMN username_key varchar(128) NOT NULL DEFAULT ''").Error; err != nil {
+			return err
+		}
+	}
+	if !hasName {
+		return nil
+	}
+	var empty int64
+	if err := db.Raw("SELECT COUNT(*) FROM " + tableUsers + " WHERE username_key IS NULL OR username_key = ''").Scan(&empty).Error; err != nil {
+		return err
+	}
+	if empty == 0 {
+		// A healthy table pays one COUNT per start instead of a no-op write. | 健康的表每次启动只付一次 COUNT，
+		// 而不是一次空写。
+		return nil
+	}
+	return db.Exec(
+		"UPDATE " + tableUsers + " SET username_key = LOWER(TRIM(username)) WHERE username_key IS NULL OR username_key = ''",
+	).Error
+}
+
+// assertNoDuplicateColumn reports duplicate values of one plain column. | assertNoDuplicateColumn 报告一个普通列的重复取值。
+func assertNoDuplicateColumn(db *gorm.DB, column, label string) error {
+	return assertNoDuplicateExpression(db, column, label)
+}
+
+// assertNoDuplicateExpression reports duplicate values of a SQL expression and keeps the count in the error. |
+// assertNoDuplicateExpression 报告一个 SQL 表达式的重复取值，并把冲突组数写进错误。
+//
+// The expression is built from package constants and fixed SQL fragments only, never from user input. | 表达式只由包级
+// 常量与固定 SQL 片段拼成，绝不来自用户输入。
+func assertNoDuplicateExpression(db *gorm.DB, expression, label string) error {
+	query := "SELECT COUNT(*) FROM (SELECT " + expression + " AS yd_dup_key FROM " + tableUsers +
+		" GROUP BY " + expression + " HAVING COUNT(*) > 1) AS yd_dup"
+	var conflicts int64
+	if err := db.Raw(query).Scan(&conflicts).Error; err != nil {
+		return errs.WrapDetail(err, ErrMigrateFailed, "duplicate pre-check on %s failed | %s 的重复预检失败", label, label)
+	}
+	if conflicts == 0 {
+		return nil
+	}
+	return errs.Detail(ErrMigrationIdentityConflict,
+		"%[3]d conflicting group(s) found on %[1]s in %[2]s | 在 %[2]s 的 %[1]s 上发现 %[3]d 组冲突", label, tableUsers, conflicts)
 }
 
 // backfillMemberships upgrades a database written before memberships existed. | backfillMemberships 升级成员关系出现之前写入的数据库。

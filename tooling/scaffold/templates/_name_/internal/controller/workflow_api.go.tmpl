@@ -39,6 +39,25 @@ func (c *Controller) workflowAPIAvailable(ctx *router.Ctx) (string, bool) {
 	return tenantID, true
 }
 
+// workflowAPIVersionInDefinition checks the optional parent definition when a version route
+// carries one. The current REST shape addresses versions directly, so the guard is a no-op today
+// and starts protecting `/definitions/{id}/versions/{version_id}` routes if one is added. A
+// mismatch and a missing version answer with the same 404. | workflowAPIVersionInDefinition 在版本
+// 路由带父定义时校验其归属。当前 REST 形态直接寻址版本，因此该守卫目前是空操作；一旦新增
+// `/definitions/{id}/versions/{version_id}` 路由便会开始生效。不匹配与不存在返回同一个 404。
+func (c *Controller) workflowAPIVersionInDefinition(ctx *router.Ctx, tenantID string) bool {
+	definitionID := strings.TrimSpace(ctx.Param("id"))
+	if definitionID == "" {
+		return true
+	}
+	version, err := c.workflow.GetVersion(ctx.Request.Context(), tenantID, ctx.Param("version_id"))
+	if err != nil || version.DefinitionID != definitionID {
+		c.workflowAPIFail(ctx, workflow.ErrNotFound)
+		return false
+	}
+	return true
+}
+
 // APIDefinitions lists or creates process definitions. | APIDefinitions 列出或创建流程定义。
 //
 // @Summary List definitions | 列出流程定义
@@ -255,6 +274,9 @@ func (c *Controller) APIVersion(ctx *router.Ctx) {
 	if !ok {
 		return
 	}
+	if !c.workflowAPIVersionInDefinition(ctx, tenantID) {
+		return
+	}
 	version, err := c.workflow.GetVersion(ctx.Request.Context(), tenantID, ctx.Param("version_id"))
 	if err != nil {
 		c.workflowAPIFail(ctx, err)
@@ -283,6 +305,9 @@ func (c *Controller) APIVersion(ctx *router.Ctx) {
 func (c *Controller) APIUpdateVersion(ctx *router.Ctx) {
 	tenantID, ok := c.workflowAPIAvailable(ctx)
 	if !ok {
+		return
+	}
+	if !c.workflowAPIVersionInDefinition(ctx, tenantID) {
 		return
 	}
 	request := workflowVersionRequest{}
@@ -317,6 +342,9 @@ func (c *Controller) APIPublishVersion(ctx *router.Ctx) {
 	if !ok {
 		return
 	}
+	if !c.workflowAPIVersionInDefinition(ctx, tenantID) {
+		return
+	}
 	request := workflowPublishRequest{}
 	_ = ctx.Bind(&request)
 	version, err := c.workflow.PublishVersion(ctx.Request.Context(), tenantID, ctx.Param("version_id"), c.workflowActor(ctx).ID, request.Note)
@@ -343,6 +371,9 @@ func (c *Controller) APIDeleteVersion(ctx *router.Ctx) {
 	if !ok {
 		return
 	}
+	if !c.workflowAPIVersionInDefinition(ctx, tenantID) {
+		return
+	}
 	if err := c.workflow.DeleteVersion(ctx.Request.Context(), tenantID, ctx.Param("version_id")); err != nil {
 		c.workflowAPIFail(ctx, err)
 		return
@@ -367,7 +398,7 @@ func (c *Controller) APIWorkflowExport(ctx *router.Ctx) {
 	if !ok {
 		return
 	}
-	if strings.EqualFold(strings.TrimSpace(ctx.Query(FieldWorkflowFormat)), "bpmn") {
+	if strings.EqualFold(strings.TrimSpace(ctx.Query(FieldWorkflowFormat)), workflowFormatBPMN) {
 		document, err := c.workflow.ExportBPMN(ctx.Request.Context(), tenantID, strings.TrimSpace(ctx.Query(FieldWorkflowVersion)))
 		if err != nil {
 			c.workflowAPIFail(ctx, err)
@@ -410,7 +441,7 @@ func (c *Controller) APIWorkflowImport(ctx *router.Ctx) {
 		return
 	}
 	actorID := c.workflowActor(ctx).ID
-	if strings.EqualFold(strings.TrimSpace(ctx.Query(FieldWorkflowFormat)), "bpmn") {
+	if strings.EqualFold(strings.TrimSpace(ctx.Query(FieldWorkflowFormat)), workflowFormatBPMN) {
 		body := ctx.Body()
 		defer func() { _ = body.Close() }()
 		limit := int64(c.workflow.Options().MaxImportBytes)

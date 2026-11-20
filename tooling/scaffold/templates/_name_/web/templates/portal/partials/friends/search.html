@@ -28,7 +28,7 @@
                 hx-get="/friends/new?friend_id={{ .Profile.ID }}" hx-target="#yd-drawer-body" hx-swap="innerHTML">
           {{ template "partials/icon" "lucide-user-plus" }}{{ tr "friend.add" }}
         </button>
-        {{- else if and (eq .Relation "friend") (can $.Perm.MessageSend) }}
+        {{- else if and (eq .Relation $.RelationFriend) (can $.Perm.MessageSend) }}
         <a class="yd-btn yd-btn--ghost yd-btn--sm" href="/messages/direct/{{ .Profile.ID }}"
            hx-get="/messages/direct/{{ .Profile.ID }}" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true">
           {{ template "partials/icon" "lucide-message-square" }}{{ tr "friend.message" }}

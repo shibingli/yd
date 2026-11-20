@@ -1,0 +1,43 @@
+{{/*
+  partials/workflows/comments.html — the instance comment block (list + compose form) shared by
+  the portal and the back office.
+
+  数据契约 | Data contract: .InstanceID、.Comments、.BasePath、.CanComment、.Lang。
+  The form swaps only this block (outerMorph), so the drawer stays open; 401/403/404/409/422 are
+  written into the drawer's error outlet. | 表单只替换本区块（outerMorph），抽屉保持打开；
+  401/403/404/409/422 写入抽屉错误槽。
+*/}}
+{{- define "partials/workflows/comments" -}}
+<section class="yd-section" id="yd-workflow-comments" aria-labelledby="yd-workflow-comments-title">
+  <h3 class="yd-section__title" id="yd-workflow-comments-title">{{ tr "workflow.instance.comments" }}</h3>
+  <ul class="yd-timeline">
+    {{ range .Comments }}
+    <li class="yd-timeline__item">
+      <span class="yd-timeline__dot" aria-hidden="true"></span>
+      <div>
+        <p class="yd-timeline__body">{{ .Body }}</p>
+        <p class="yd-timeline__meta">{{ if .AuthorName }}{{ .AuthorName }} · {{ end }}{{ .CreatedAt.Format "2006-01-02 15:04" }}</p>
+      </div>
+    </li>
+    {{ else }}
+    <li class="yd-timeline__item">{{ tr "workflow.instance.no_comments" }}</li>
+    {{ end }}
+  </ul>
+  {{- if .CanComment }}
+  <form class="yd-form" method="post" action="{{ .BasePath }}/{{ .InstanceID }}/comments"
+        hx-post="{{ .BasePath }}/{{ .InstanceID }}/comments" hx-target="#yd-workflow-comments" hx-swap="outerMorph"
+        hx-status:401="target:#yd-drawer-errors swap:innerHTML"
+        hx-status:403="target:#yd-drawer-errors swap:innerHTML"
+        hx-status:404="target:#yd-drawer-errors swap:innerHTML"
+        hx-status:409="target:#yd-drawer-errors swap:innerHTML"
+        hx-status:422="target:#yd-drawer-errors swap:innerHTML">
+    {{template "components.form.textarea" (dict
+      "ID" "yd-workflow-comment-body" "Name" "body" "Rows" 3 "Required" true "MaxLength" 2000
+      "Label" (tr "workflow.comment.label") "LabelKey" "workflow.comment.label"
+      "Placeholder" (tr "workflow.comment.placeholder") "PlaceholderKey" "workflow.comment.placeholder")}}
+    {{template "components.form.actions" (dict "SubmitLabel" (tr "workflow.comment.submit") "SubmitKey" "workflow.comment.submit")}}
+  </form>
+  {{- end }}
+</section>
+{{- end -}}
+{{ template "partials/workflows/comments" . }}

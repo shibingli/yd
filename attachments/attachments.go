@@ -48,6 +48,20 @@ var (
 // RefTypeMessage is the reference type used by the message centre. | RefTypeMessage 是消息中心使用的引用类型。
 const RefTypeMessage = "message"
 
+// DeletedBySystem marks a tombstone written by a background sweep rather than by a user. |
+// DeletedBySystem 标记由后台清理而非用户写入的墓碑。
+const DeletedBySystem = "system"
+
+// Content-Disposition dispositions used by the attachment domain. They are machine values and must
+// stay behind these constants. | 附件域使用的 Content-Disposition 处置类型。它们是机器可读取值，
+// 必须只出现在这些常量里。
+const (
+	// DispositionAttachment tells the browser to download the file. | DispositionAttachment 让浏览器下载文件。
+	DispositionAttachment = "attachment"
+	// DispositionInline lets the browser render a safe image in place. | DispositionInline 让浏览器就地渲染安全的图片。
+	DispositionInline = "inline"
+)
+
 // Status is the lifecycle of one attachment. | Status 是一个附件的生命周期状态。
 type Status string
 
@@ -441,7 +455,7 @@ func safeDownloadName(name string) string {
 	if name == "" {
 		return "file"
 	}
-	if mime.FormatMediaType("attachment", map[string]string{"filename": name}) == "" {
+	if mime.FormatMediaType(DispositionAttachment, map[string]string{"filename": name}) == "" {
 		return "file"
 	}
 	return name

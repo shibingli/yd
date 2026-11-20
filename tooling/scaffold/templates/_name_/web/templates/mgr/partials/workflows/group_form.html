@@ -2,17 +2,17 @@
   mgr/partials/workflows/group_form.html —— 流程组新建/编辑抽屉。
   mgr/partials/workflows/group_form.html — the workflow group create/edit drawer.
 
-  数据契约 | Data contract: .Group、.RoleOptions（[]map{Value,Label,Selected}）、.Mode。
+  数据契约 | Data contract: .Group、.RoleOptions（[]map{Value,Label,Selected}）、.IsEdit。
 */}}
 {{- define "mgr/partials/workflows/group_form" -}}
 <div class="yd-drawer__head">
-  <h2 class="yd-section__title">{{ if eq .Mode "edit" }}{{ tr "workflow.groups.edit" }}{{ else }}{{ tr "workflow.groups.new" }}{{ end }}</h2>
+  <h2 class="yd-section__title">{{ if .IsEdit }}{{ tr "workflow.groups.edit" }}{{ else }}{{ tr "workflow.groups.new" }}{{ end }}</h2>
   <p class="yd-section__hint">{{ tr "workflow.groups.form_hint" }}</p>
 </div>
 <form class="yd-form" method="post"
       data-yd-confirm="{{ tr "confirm.save_workflow_group" }}"
-      action="{{ if eq .Mode "edit" }}/mgr/workflow-groups/{{ .Group.ID }}{{ else }}/mgr/workflow-groups{{ end }}"
-      hx-post="{{ if eq .Mode "edit" }}/mgr/workflow-groups/{{ .Group.ID }}{{ else }}/mgr/workflow-groups{{ end }}"
+      action="{{ if .IsEdit }}/mgr/workflow-groups/{{ .Group.ID }}{{ else }}/mgr/workflow-groups{{ end }}"
+      hx-post="{{ if .IsEdit }}/mgr/workflow-groups/{{ .Group.ID }}{{ else }}/mgr/workflow-groups{{ end }}"
       hx-target="#yd-workflow-groups" hx-swap="innerMorph"
       hx-status:409="target:#yd-drawer-errors swap:innerHTML"
       hx-status:422="target:#yd-drawer-errors swap:innerHTML">
@@ -20,7 +20,7 @@
     "ID" "yd-workflow-group-key" "Name" "key" "Type" "text" "Value" .Group.Key
     "Label" (tr "workflow.field.key") "LabelKey" "workflow.field.key"
     "Hint" (tr "workflow.groups.key_hint") "HintKey" "workflow.groups.key_hint"
-    "MaxLength" 64 "Required" true "Readonly" (eq .Mode "edit"))}}
+    "MaxLength" 64 "Required" true "Readonly" (.IsEdit))}}
   {{template "components.form.field" (dict
     "ID" "yd-workflow-group-name" "Name" "name" "Type" "text" "Value" .Group.Name
     "Label" (tr "field.name") "LabelKey" "field.name" "MaxLength" 120 "Required" true)}}
@@ -40,8 +40,8 @@
     "ID" "yd-workflow-group-status" "Name" "status"
     "Label" (tr "field.status") "LabelKey" "field.status"
     "Options" (list
-      (dict "Value" "enabled" "Label" (tr "status.active") "Key" "status.active" "Selected" (ne .Group.Status "disabled"))
-      (dict "Value" "disabled" "Label" (tr "status.disabled") "Key" "status.disabled" "Selected" (eq .Group.Status "disabled"))))}}
+      (dict "Value" .WorkflowGroupEnabled "Label" (tr "status.active") "Key" "status.active" "Selected" (ne .Group.Status .WorkflowGroupDisabled))
+      (dict "Value" .WorkflowGroupDisabled "Label" (tr "status.disabled") "Key" "status.disabled" "Selected" (eq .Group.Status .WorkflowGroupDisabled))))}}
   {{template "components.form.actions" (dict
     "SubmitLabel" (tr "ui.save") "SubmitKey" "ui.save"
     "CancelLabel" (tr "ui.cancel") "CancelKey" "ui.cancel")}}

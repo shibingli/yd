@@ -37,9 +37,7 @@
           {{- with .Definition.Category }}{{ template "components.display.badge" (dict "Tone" "muted" "Label" .) }}{{ else }}—{{ end }}
         </td>
         <td class="yd-table__td">
-          {{- if eq .Definition.Status "published" }}{{ template "components.display.badge" (dict "Tone" "success" "LabelKey" "workflow.status.published") }}
-          {{- else if eq .Definition.Status "disabled" }}{{ template "components.display.badge" (dict "Tone" "warn" "LabelKey" "workflow.status.disabled") }}
-          {{- else }}{{ template "components.display.badge" (dict "Tone" "muted" "LabelKey" "workflow.status.draft") }}{{ end }}
+          {{- with .Badge }}{{ template "components.display.badge" (dict "Tone" .Tone "LabelKey" .LabelKey) }}{{ end }}
         </td>
         <td class="yd-table__td yd-table__td--num">
           {{- if .Definition.CurrentVersion }}v{{ .Definition.CurrentVersion }}{{ else }}—{{ end }}
@@ -79,13 +77,13 @@
                     hx-post="/mgr/workflows/{{ .Definition.ID }}/status" hx-target="#yd-workflow-definitions" hx-swap="innerMorph"
                     hx-status:409="target:#yd-errors swap:innerHTML" hx-status:422="target:#yd-errors swap:innerHTML"
                     data-yd-confirm="{{ tr "confirm.workflow_status" }}">
-                <input type="hidden" name="status" value="{{ if eq .Definition.Status "disabled" }}published{{ else }}disabled{{ end }}">
+                <input type="hidden" name="status" value="{{ .NextStatus }}">
                 <input type="hidden" name="return_q" value="{{ $.Keyword }}">
                 <input type="hidden" name="return_status" value="{{ $.Status }}">
                 <input type="hidden" name="return_category" value="{{ $.Category }}">
                 <input type="hidden" name="return_page" value="{{ $.Page }}">
                 <button type="submit" class="yd-menu__item yd-menu__item--with-icon" role="menuitem">
-                  {{- if eq .Definition.Status "disabled" }}{{ template "partials/icon" "lucide-circle-check" }}{{ tr "ui.enable" }}
+                  {{- if .IsDisabled }}{{ template "partials/icon" "lucide-circle-check" }}{{ tr "ui.enable" }}
                   {{- else }}{{ template "partials/icon" "lucide-ban" }}{{ tr "ui.disable" }}{{ end }}
                 </button>
               </form>

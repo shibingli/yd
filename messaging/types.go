@@ -547,6 +547,9 @@ type ConversationView struct {
 	Members []Profile `json:"members"`
 	// Unread is the number of unread messages for the actor. | Unread 是当前主体的未读数。
 	Unread int `json:"unread"`
+	// HasEarlier reports whether messages older than the returned page exist. | HasEarlier 报告是否存在早于
+	// 当前页的消息。
+	HasEarlier bool `json:"has_earlier"`
 }
 
 // FriendView is one accepted friend with an optional remark. | FriendView 是一位已接受好友及其可选备注。

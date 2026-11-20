@@ -87,8 +87,8 @@
       "ID" "yd-user-status" "Name" "status"
       "LabelKey" "users.field.status" "Label" (tr "users.field.status")
       "Options" (list
-          (dict "Value" "active" "Key" "users.status.active" "Label" (tr "users.status.active") "Selected" true)
-          (dict "Value" "disabled" "Key" "users.status.disabled" "Label" (tr "users.status.disabled"))))}}
+          (dict "Value" .Values.StatusActive "Key" "users.status.active" "Label" (tr "users.status.active") "Selected" true)
+          (dict "Value" .Values.StatusDisabled "Key" "users.status.disabled" "Label" (tr "users.status.disabled"))))}}
 
   {{template "partials/form.actions" (dict "SubmitKey" "action.save" "Submit" (tr "action.save"))}}
 </form>

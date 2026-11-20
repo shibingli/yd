@@ -615,3 +615,25 @@ SQLite 不开启 `foreign_keys`，其它方言也不得用触发器或约束代�
 - **生产脚本分块**：`web.InitBundles` 按外壳顺序在脚本边界分块，默认每块 ≤128 KiB
   （`bundle.max_bytes` / `YD_BUNDLE_MAX_BYTES`）；地址带 `part` 与内容哈希，静态缓存可长期缓存。
   单个源文件超限时单独成块并在启动日志告警，**不得**按任意字节切断压缩脚本。
+
+## 25. 领域枚举常量契约（强制）
+
+**状态、生命周期、操作/动作、类型、模式、角色、事件名、渠道、存储后端与协议枚举一律常量化**，
+不得在业务代码、模板或前端脚本中散落裸字符串。这条规则与第 9 节的注释规范、第 10 节的错误规范同级：
+违反它不会立刻报错，却会让同一语义在不同位置悄悄分叉。
+
+- **类型化常量是唯一出处**：在所属包声明 `type Status string` + `const StatusActive Status = "active"`；
+  DTO、GORM 模型与函数参数使用该类型，不用 `string` 承载枚举。JSON/GORM 序列化仍是字符串，
+  但 Go 侧必须类型安全。
+- **裸字面量只允许三处**：① 常量声明右侧；② 外部边界（HTTP 表单/查询/JSON/数据库）的集中解析函数
+  （如 `ParseStatus`，未知值**失败关闭**）；③ 测试夹具中用于证明边界行为的显式输入。
+- **跨包引用提供方常量**：`ydx/workflow` 的 `DefinitionDraft` / `InstanceRunning` / `TaskPending` /
+  `DecisionApprove` / `DecisionReject` / `NodeUserTask` 等、`authz.Role*` / `authz.Perm*`、
+  `messaging.Kind*` / `Status*` / `Event*`、`attachments.Status*`、`auth.Status*`、`metricsx.State*`。
+  不得在调用方另抄一份同义字面量。
+- **前端同样适用**：模板条件、`case` 分支、`data-*` 值与 JS 状态机必须引用常量映射（如 `yd.PERM`）
+  或控制器下发的枚举值；事件名、状态值在 JS 中只允许出现在一个常量对象里，其余位置引用该对象。
+- **新增枚举同批完成**：类型化常量（双语注释）→ `Parse`/`Valid`（未知值失败关闭）→ 前端常量映射 →
+  中英 i18n → 表驱动测试。删除/重命名枚举值时全仓替换。
+- **守卫**：`repotest.TestDomainStringsStayConstant` 扫描已知领域枚举字面量在声明与边界解析之外的
+  裸用法（Go、模板与 JS），命中即失败。

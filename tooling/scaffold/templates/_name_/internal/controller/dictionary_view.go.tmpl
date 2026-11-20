@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"{{ .Module }}/internal/service"
 	"{{ .YdModule }}/dictionary"
 	"{{ .YdxModule }}/json"
+	ydlog "{{ .YdxModule }}/log"
 	"{{ .YdxModule }}/router"
 )
 
@@ -159,11 +159,13 @@ func dictionaryLongField(ctx *router.Ctx, name string, max int) string {
 
 // dictionaryUnavailable ends an HTML request with the assembly error. | dictionaryUnavailable 以装配错误结束 HTML 请求。
 func (c *Controller) dictionaryUnavailable(ctx *router.Ctx) {
-	message := service.ErrDictionaryUnavailable.Error()
+	// 详细原因只写日志；响应得到固定文案，不会泄露 DSN、路径或驱动报文。 |
+	// The detailed cause stays in the log; the response gets fixed copy and never leaks a DSN,
+	// path or driver message.
 	if c.dictionaryErr != nil {
-		message = c.dictionaryErr.Error()
+		c.log.Warn("dictionary service unavailable | 数据字典服务不可用", ydlog.Err(c.dictionaryErr))
 	}
-	c.fail(ctx, http.StatusServiceUnavailable, message)
+	c.fail(ctx, http.StatusServiceUnavailable, "数据字典服务暂不可用 | The dictionary service is temporarily unavailable")
 }
 
 // dictionaryTypeViews converts domain types into template/API views. | dictionaryTypeViews 把领域类型转换为模板/API 视图。

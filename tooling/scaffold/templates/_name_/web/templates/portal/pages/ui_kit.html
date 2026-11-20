@@ -56,8 +56,8 @@
             "ID" "yd-kit-status" "Name" "status"
             "Label" (tr "field.status") "LabelKey" "field.status"
             "Options" (list
-              (dict "Value" "active" "Key" "status.active" "Selected" true)
-              (dict "Value" "disabled" "Key" "status.disabled"))) }}
+              (dict "Value" .StatusActive "Key" "status.active" "Selected" true)
+              (dict "Value" .StatusDisabled "Key" "status.disabled"))) }}
           {{template "components.form.number" (dict
             "ID" "yd-kit-number" "Name" "quota" "Value" 8 "Min" 1 "Max" 100 "Step" 1
             "Label" (tr "showcase.label.quantity") "LabelKey" "showcase.label.quantity")}}
@@ -647,8 +647,8 @@
         "Items" (list
           (dict "Name" "role" "Prompt" (tr "showcase.sample.role_question") "PromptKey" "showcase.sample.role_question" "Required" true "Type" "radio"
             "Choices" (list
-              (dict "Value" "admin" "Label" (tr "showcase.sample.admin") "LabelKey" "showcase.sample.admin" "Type" "radio" "Checked" true)
-              (dict "Value" "member" "Label" (tr "showcase.sample.member") "LabelKey" "showcase.sample.member" "Type" "radio"))))
+              (dict "Value" .RoleAdmin "Label" (tr "showcase.sample.admin") "LabelKey" "showcase.sample.admin" "Type" "radio" "Checked" true)
+              (dict "Value" .RoleMember "Label" (tr "showcase.sample.member") "LabelKey" "showcase.sample.member" "Type" "radio"))))
         "SubmitLabel" (tr "ui.save") "SubmitKey" "ui.save")}}
       {{template "components.navigation.tabbar" (dict
         "Label" (tr "showcase.label.tabbar") "LabelKey" "showcase.label.tabbar"

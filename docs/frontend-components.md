@@ -771,7 +771,7 @@ KPI + 迷你折线：
 | 危险操作 | `data-yd-confirm` / `feedback.popconfirm` | 浏览器 `confirm()` |
 | 空列表 | `layout.empty` + 下一步操作 | 只写“暂无数据” |
 | 加载 | `spinner` / `skeleton` / `#yd-progress` | 全屏遮罩 |
-| 表单校验 | `hx-status:422` + `#errors` | `alert()` |
+| 表单校验 | `hx-status:422` + `#yd-errors` | `alert()` |
 | 长文本 | `display.ellipsis` / `scroll-area` | 让表格撑破布局 |
 | 层级数据 | `navigation.tree` / `form.tree-select` | 缩进 div 拼接 |
 | 多步流程 | `navigation.steps` | 只靠按钮文案 |
@@ -785,7 +785,7 @@ KPI + 迷你折线：
 ## 7. 最佳实践
 
 1. **先服务端，后脚本**：能在模板里渲染的，不要等 Alpine 再生成。
-2. **一个页面一个错误槽位**：抽屉内用 `#yd-drawer-errors`，页面级用 `#errors`。
+2. **一个页面一个错误槽位**：抽屉内用 `#yd-drawer-errors`，页面级用 `#yd-errors`。
 3. **表单字段不复制**：可见输入框就是提交字段；隐藏字段只用于 OTP/Tags/Combobox 这类需要汇总的值。
 4. **列表操作用图标菜单**：表格/列表右侧操作列一律收进一个图标按钮（`lucide-more-horizontal` + `aria-label`）展开的 `details.yd-menu`，或 `navigation.dropdown`；不得按数量决定是否并排文字按钮。图标与文字并存的菜单项统一加 `yd-menu__item--with-icon`，所有表格操作菜单使用同一套触发器、菜单项与行高。
 5. **组件库优先**：写任何控件前先查本清单与 `/ui-kit`；已有组件能覆盖就不得手写等价 DOM，顺序固定为「组件 → 组件参数/修饰类 → 新增组件 → 手写 HTML」，最后一档必须写明原因。

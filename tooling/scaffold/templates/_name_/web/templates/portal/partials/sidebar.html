@@ -75,6 +75,8 @@
       {{- $mgrHref = "/mgr/messages" -}}
     {{- else if can .Perm.MessageTypeRead -}}
       {{- $mgrHref = "/mgr/message-settings" -}}
+    {{- else if and .DictionaryAvailable (can .Perm.DictionaryRead) -}}
+      {{- $mgrHref = "/mgr/dictionaries" -}}
     {{- else if and .AttachmentAvailable (can .Perm.AttachmentRead) -}}
       {{- $mgrHref = "/mgr/attachments" -}}
     {{- else if and .WorkflowAvailable (can .Perm.WorkflowRead) -}}

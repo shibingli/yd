@@ -23,6 +23,7 @@ import (
 	"{{ .Module }}/internal/service"
 	"{{ .YdModule }}/attachments"
 	"{{ .YdModule }}/security/auth"
+	ydlog "{{ .YdxModule }}/log"
 	"{{ .YdModule }}/security/authz"
 	"{{ .YdxModule }}/log"
 	"{{ .YdxModule }}/router"
@@ -39,6 +40,32 @@ const (
 	// attachmentMgrAPI is the management JSON API prefix. | attachmentMgrAPI 是管理 JSON API 前缀。
 	attachmentMgrAPI = "/api/v1/attachments"
 )
+
+// Attachment filter values. Machine values live here only; templates read them from view data. |
+// 附件筛选取值。机器值只在此处声明，模板从视图数据读取。
+const (
+	// attachmentStatusPending is the lifecycle state of an upload waiting for a business object. |
+	// attachmentStatusPending 是等待业务引用的上传记录的生命周期状态。
+	attachmentStatusPending = string(attachments.StatusPending)
+	// attachmentStatusReferenced is the lifecycle state of a bound attachment. |
+	// attachmentStatusReferenced 是已被业务绑定的附件的生命周期状态。
+	attachmentStatusReferenced = string(attachments.StatusReferenced)
+	// attachmentStatusDeleted is the tombstone lifecycle state. | attachmentStatusDeleted 是墓碑生命周期状态。
+	attachmentStatusDeleted = string(attachments.StatusDeleted)
+	// attachmentReferencedYes keeps only rows that still have a reference. | attachmentReferencedYes 只保留仍有引用的记录。
+	attachmentReferencedYes = "yes"
+	// attachmentReferencedNo keeps only rows without any reference. | attachmentReferencedNo 只保留没有任何引用的记录。
+	attachmentReferencedNo = "no"
+)
+
+// attachmentStatusOptions builds the lifecycle-state filter choices. | attachmentStatusOptions 构建生命周期状态筛选项。
+func attachmentStatusOptions(selected string) []map[string]any {
+	return []map[string]any{
+		{"Value": attachmentStatusPending, "Key": "attachment.status.pending", "Selected": selected == attachmentStatusPending},
+		{"Value": attachmentStatusReferenced, "Key": "attachment.status.referenced", "Selected": selected == attachmentStatusReferenced},
+		{"Value": attachmentStatusDeleted, "Key": "attachment.status.deleted", "Selected": selected == attachmentStatusDeleted},
+	}
+}
 
 // attachmentFilters is the filter bar state. | attachmentFilters 是过滤栏状态。
 type attachmentFilters struct {
@@ -161,6 +188,9 @@ type attachmentPage struct {
 func (p attachmentPage) data() map[string]any {
 	return map[string]any{
 		"Filters":          p.Filters,
+		"StatusOptions":    attachmentStatusOptions(p.Filters.Status),
+		"ReferencedYes":    attachmentReferencedYes,
+		"ReferencedNo":     attachmentReferencedNo,
 		"Items":            p.Items,
 		"Uploaders":        p.Uploaders,
 		"Pages":            p.Pages,
@@ -594,7 +624,7 @@ func (c *Controller) MgrAttachmentCleanupDrawer(ctx *router.Ctx) {
 	}
 	actor := c.attachmentActor(ctx)
 	filters := parseAttachmentFilters(ctx)
-	filters.Referenced = "no"
+	filters.Referenced = attachmentReferencedNo
 	filters.Status = ""
 	filters.Page = 1
 	filter := attachmentFilter(filters, 1, 1)
@@ -929,7 +959,11 @@ func (c *Controller) attachmentsPage(ctx *router.Ctx, management bool, notice st
 	if !c.AttachmentsAvailable() {
 		page.Unavailable = true
 		if err := c.AttachmentError(); err != nil {
-			page.Error = err.Error()
+			// 详细原因只写日志，页面得到固定文案，避免泄露存储路径、前缀或驱动报文。 |
+			// The detailed cause stays in the log; the page gets fixed copy and never leaks a
+			// storage path, prefix or driver message.
+			c.log.Warn("attachment service unavailable | 附件服务不可用", ydlog.Err(err))
+			page.Error = "附件服务暂不可用 | The attachment service is temporarily unavailable"
 		}
 		c.render(ctx, http.StatusServiceUnavailable, templateName, c.pageView(ctx, title, page.data()))
 		return
@@ -998,10 +1032,10 @@ func (c *Controller) attachmentsPage(ctx *router.Ctx, management bool, notice st
 		return page.Filters.href(base, n)
 	}
 	page.Pages, page.PrevHref, page.NextHref = pageLinks(result.Total, current, result.PageSize, href)
-	page.UnreferencedURL = page.Filters.withReferenced("no").href(base, 1)
+	page.UnreferencedURL = page.Filters.withReferenced(attachmentReferencedNo).href(base, 1)
 	if management {
 		cleanupFilters := page.Filters
-		cleanupFilters.Referenced = "no"
+		cleanupFilters.Referenced = attachmentReferencedNo
 		cleanupFilters.Status = ""
 		cleanupFilters.Page = 1
 		cleanupResult, cleanupErr := c.attachments.ListAll(ctx.Request.Context(), actor, attachmentFilter(cleanupFilters, options.PageSize, 1))
@@ -1293,9 +1327,9 @@ func attachmentFilter(filters attachmentFilters, pageSize int, pageOverride int)
 		}
 	}
 	switch filters.Referenced {
-	case "yes":
+	case attachmentReferencedYes:
 		filter.Referenced = attachmentBool(true)
-	case "no":
+	case attachmentReferencedNo:
 		filter.Referenced = attachmentBool(false)
 	}
 	if from, ok := parseAttachmentDate(filters.From, false); ok {

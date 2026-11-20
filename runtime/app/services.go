@@ -164,7 +164,15 @@ func (a *App) runShutdownHooks(ctx context.Context) error {
 		}
 
 		done := make(chan error, 1)
-		go func(fn func(context.Context) error) { done <- fn(ctx) }(hook.fn)
+		go func(name string, fn func(context.Context) error) {
+			defer func() {
+				if rec := recover(); rec != nil {
+					done <- yderrs.WrapDetail(ErrHookPanic, ErrShutdown,
+						"hook=%[1]q panic=%[2]v | 钩子=%[1]q 发生 panic：%[2]v", name, rec)
+				}
+			}()
+			done <- fn(ctx)
+		}(hook.name, hook.fn)
 		select {
 		case err := <-done:
 			if err != nil {

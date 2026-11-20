@@ -9,9 +9,9 @@
   write control at all. A deletion requires a reason and notifies the uploader; a bulk cleanup only touches records with
   no reference whatsoever, so a file still consumed by a feature is never part of it.
 
-  数据契约 | Data contract: .Unavailable .Error .Filters .Items .Uploaders .Pages .PrevHref .NextHref .Total .Page
-  .PageCount .Empty .CanManage .CleanupCount .CleanupURL .UnreferencedURL .ReasonMax .MaxSizeText .AllowedTypesText，
-  以及 authz.Data 注入的 .Perm。
+  数据契约 | Data contract: .Unavailable .Error .Filters .StatusOptions .ReferencedYes .ReferencedNo .Items .Uploaders
+  .Pages .PrevHref .NextHref .Total .Page .PageCount .Empty .CanManage .CleanupCount .CleanupURL .UnreferencedURL
+  .ReasonMax .MaxSizeText .AllowedTypesText，以及 authz.Data 注入的 .Perm。
 */}}
 <section class="yd-page" data-yd-page="attachments" aria-labelledby="yd-attachments-title">
   <header class="yd-page__header">
@@ -58,17 +58,14 @@
       "ID" "yd-attachment-status" "Name" "status" "LabelHidden" true
       "Label" (tr "attachment.status_label") "LabelKey" "attachment.status_label"
       "PlaceholderKey" "attachment.status.all"
-      "Options" (list
-        (dict "Value" "pending" "Key" "attachment.status.pending" "Selected" (eq .Filters.Status "pending"))
-        (dict "Value" "referenced" "Key" "attachment.status.referenced" "Selected" (eq .Filters.Status "referenced"))
-        (dict "Value" "deleted" "Key" "attachment.status.deleted" "Selected" (eq .Filters.Status "deleted"))))}}
+      "Options" .StatusOptions)}}
     {{template "components.form.select" (dict
       "ID" "yd-attachment-referenced" "Name" "referenced" "LabelHidden" true
       "Label" (tr "attachment.field.refs") "LabelKey" "attachment.field.refs"
       "PlaceholderKey" "attachment.referenced.all"
       "Options" (list
-        (dict "Value" "yes" "Key" "attachment.referenced.yes" "Selected" (eq .Filters.Referenced "yes"))
-        (dict "Value" "no" "Key" "attachment.referenced.no" "Selected" (eq .Filters.Referenced "no"))))}}
+        (dict "Value" .ReferencedYes "Key" "attachment.referenced.yes" "Selected" (eq .Filters.Referenced .ReferencedYes))
+        (dict "Value" .ReferencedNo "Key" "attachment.referenced.no" "Selected" (eq .Filters.Referenced .ReferencedNo))))}}
     {{template "components.form.date" (dict
       "ID" "yd-attachment-from" "Name" "from" "Value" .Filters.From
       "Label" (tr "attachment.from") "LabelKey" "attachment.from" "LabelHidden" true)}}

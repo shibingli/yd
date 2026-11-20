@@ -27,6 +27,17 @@ func (s *Service) NotifyUser(ctx context.Context, tenantID, recipientID string, 
 	if !actor.System && !actor.Manage {
 		return MessageView{}, ErrForbidden
 	}
+	// 通知只能写入调用方自己所在的租户；可信的系统主体（如流程引擎）是唯一例外，它可以代表平台
+	// 跨租户投递。收件人必须确实是该租户的活跃成员，否则通知频道会为一个不存在或已停用的账号而建立。
+	// A notice may only target the caller's own tenant; the trusted system principal (the workflow engine)
+	// is the sole exception and may deliver across tenants. The recipient must be an active member of that
+	// tenant, otherwise the private channel would be created for a missing or disabled account.
+	if !actor.System && strings.TrimSpace(actor.TenantID) != tenantID {
+		return MessageView{}, ErrForbidden
+	}
+	if _, err := s.requireActiveUser(ctx, tenantID, recipientID); err != nil {
+		return MessageView{}, err
+	}
 	title = truncate(strings.TrimSpace(title), s.options.MaxTitleLen)
 	markdown = strings.TrimSpace(markdown)
 	if title == "" && markdown == "" {

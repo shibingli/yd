@@ -470,6 +470,15 @@ yd service uninstall
 程序入口有三种运行模式：前台（开发调试）、服务模式（被服务管理器拉起，或显式 `-service run`）、控制动作
 （`-service install|uninstall|start|stop|restart|status`）。服务模式的停止只取消 context 并等待 `app.Run` 返回——
 在途请求被等待收尾，进程绝不 `os.Exit`；因此 `ExecStart` 不要包一层 shell（如 `sh -c`），否则停止信号传不到进程。
+安装/查询等控制动作只加载服务配置并执行一次服务管理器调用，不会装配数据库、队列或 HTTP 栈；安装时会把项目目录
+固定为工作目录，并通过 `YD_CONFIG_DIR` / `YD_NODE_ID_FILE` 传入绝对路径（Windows SCM 忽略工作目录，环境变量是
+唯一可靠通道）。多副本部署必须给所有副本配置同一个 `auth.sm2_private_key`，否则浏览器从副本 A 取到的 SM2 公钥
+在副本 B 上无法解密。
+Control actions such as install and status load only the service configuration and perform one service-manager call;
+they never assemble the database, queues or HTTP stack. Install pins the project directory as the working directory and
+passes absolute `YD_CONFIG_DIR` / `YD_NODE_ID_FILE` paths through the environment (Windows SCM ignores the working
+directory, so the environment is the only reliable channel). Multi-replica deployments must configure the same
+`auth.sm2_private_key` on every replica; otherwise a public key fetched from replica A cannot be decrypted on replica B.
 
 Windows（管理员 PowerShell / cmd）：
 

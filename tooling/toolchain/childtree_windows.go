@@ -3,8 +3,10 @@
 package toolchain
 
 import (
+	"context"
 	"os/exec"
 	"strconv"
+	"time"
 )
 
 // prepareChildTree is a no-op on Windows: taskkill /T walks the process tree by parent PID, so no
@@ -27,5 +29,11 @@ func killChildTree(pid int) bool {
 	if pid <= 0 {
 		return false
 	}
-	return exec.Command("taskkill", "/T", "/F", "/PID", strconv.Itoa(pid)).Run() == nil
+	// taskkill is an external command: a system under load can make it slow, and an unbounded call
+	// would block Run indefinitely. The timeout only decides this attempt; the caller has its own
+	// fallback. | taskkill 是外部命令：系统繁忙时可能很慢，无界调用会让 Run 永久阻塞。超时只决定
+	// 本次尝试，调用方仍有自己的兜底。
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	return exec.CommandContext(ctx, "taskkill", "/T", "/F", "/PID", strconv.Itoa(pid)).Run() == nil
 }

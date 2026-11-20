@@ -30,10 +30,12 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
 
+	"{{ .YdModule }}/core/fssecure"
 	"{{ .Module }}/internal/meta"
 	"{{ .Module }}/internal/middleware"
 	"{{ .Module }}/internal/router"
@@ -42,6 +44,7 @@ import (
 {{- end }}
 	"{{ .Module }}/web"
 	"{{ .YdModule }}/runtime/app"
+	"{{ .YdxModule }}/config"
 	"{{ .YdxModule }}/errs"
 	"{{ .YdxModule }}/i18n"
 	ydlog "{{ .YdxModule }}/log"
@@ -83,7 +86,31 @@ func main() {
 	// Shutdown signals travel through the context: SIGINT, SIGTERM, SIGQUIT and SIGHUP trigger a
 	// graceful exit that drains in-flight requests. Windows console close, logoff and shutdown arrive
 	// as SIGTERM; SIGKILL and Task Manager's End Task use TerminateProcess and cannot be caught.
+	// 控制动作只加载服务配置并执行一次服务管理器调用：它们绝不装配应用，否则安装/状态查询会
+	// 顺带打开数据库、执行迁移与种子、启动后台协程，而且返回前无法优雅收尾。 |
+	// A control action loads only the service configuration and performs one service-manager call:
+	// it never assembles the application, because installing or querying status would otherwise open
+	// the database, run migrations and seeding, start background goroutines, and return without a
+	// graceful teardown.
+	if action, given := service.IsServiceArg(os.Args[1:]); given && action != service.ActionRun {
+		if err := runServiceControl(log, action); err != nil {
+			log.Error("service action failed | 服务动作失败", ydlog.Err(err))
+			os.Exit(1)
+		}
+		log.Info("service action finished | 服务动作已完成")
+		return
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGHUP)
+	// 第一次信号进入优雅退出后立即 stop()，让第二次 Ctrl+C/SIGTERM 恢复默认处置并真正终止进程；
+	// 若只依赖 defer stop()，退出卡在处理器或钩子时第二次信号会落在已取消的 context 上而被吞掉。 |
+	// After the first signal starts the graceful path, stop() immediately restores default handling so a
+	// second Ctrl+C/SIGTERM really terminates the process; relying on defer stop() alone would swallow it
+	// inside an already-cancelled context while shutdown is stuck in a handler or hook.
+	go func() {
+		<-ctx.Done()
+		stop()
+	}()
 	defer stop()
 
 	application, err := assemble(log)
@@ -91,6 +118,7 @@ func main() {
 		log.Error("application assembly failed | 应用装配失败", ydlog.Err(err))
 		os.Exit(1)
 	}
+	hardenLocalSecrets(log, application)
 
 	log.Info("application assembled | 应用已装配",
 		ydlog.Str("name", meta.Name),
@@ -107,28 +135,51 @@ func main() {
 	log.Info("application stopped | 应用已停止")
 }
 
+// hardenLocalSecrets tightens the files that may contain credentials. On Unix chmod is enough;
+// on Windows the helper replaces the inherited ACL because chmod only toggles the read-only bit.
+// A missing optional file is skipped, and a failed restriction only warns: the app still starts,
+// and the operator can fix the ACL without taking the service down. |
+// hardenLocalSecrets 收紧可能包含凭据的文件。Unix 上 chmod 足够；Windows 上助手会替换继承 ACL，
+// 因为 chmod 只切换只读位。可选的缺失文件被跳过，收紧失败只告警：应用仍可启动，运维可以在不中断
+// 服务的情况下修正 ACL。
+func hardenLocalSecrets(log *ydlog.Logger, application *app.App) {
+	if application == nil {
+		return
+	}
+	paths := []string{
+		filepath.Join(meta.ConfigDirPath(), "config.local.yaml"),
+		".env",
+	}
+	if idFile := strings.TrimSpace(application.Config().GetString("node.id_file")); idFile != "" {
+		if !filepath.IsAbs(idFile) {
+			if abs, absErr := filepath.Abs(idFile); absErr == nil {
+				idFile = abs
+			}
+		}
+		paths = append(paths, idFile)
+	}
+	for _, path := range paths {
+		if _, statErr := os.Stat(path); statErr != nil {
+			continue
+		}
+		if restrictErr := fssecure.Restrict(path, 0o600); restrictErr != nil {
+			log.Warn("sensitive file permissions could not be tightened | 敏感文件权限未能收紧",
+				ydlog.Str("path", path), ydlog.Err(restrictErr))
+		}
+	}
+}
+
 // runApplication 按参数与终端探测选择运行模式，并等待本次运行收尾。
 // runApplication selects the run mode from the arguments and the terminal probe, then waits for that run to finish.
 func runApplication(ctx context.Context, application *app.App, log *ydlog.Logger) error {
 	action, given := service.IsServiceArg(os.Args[1:])
 	opts := serviceOptions(application)
 
-	// 控制动作：只执行一次服务管理器调用，不进前台循环，也不等待任何请求。
-	// -service install|uninstall|start|stop|restart|status 属于这一类；未知动作由 service.Control 判为错误。
-	// A control action performs exactly one service manager call and neither enters the foreground loop nor waits
-	// for a request: -service install|uninstall|start|stop|restart|status belong here, and service.Control rejects
-	// any other action word as an error.
-	if given && action != service.ActionRun {
-		result, err := service.Control(opts, action)
-		if err != nil {
-			return errs.WrapDetail(err, ErrService, "action=%s", action)
-		}
-		log.Info("service action finished | 服务动作已完成",
-			ydlog.Str("action", string(action)),
-			ydlog.Str("result", result),
-		)
-		return nil
-	}
+	// runApplication handles only run and service mode; the control actions
+	// (install|uninstall|start|stop|restart|status) were handled by main before assembly. |
+	// runApplication 只处理 run 与服务模式；install|uninstall|start|stop|restart|status 已在 main 中
+	// 于装配之前处理。
+	_ = action
 
 	// 服务模式：被服务管理器拉起时没有终端（Interactive 为 false），或调用方显式给出 -service run。
 	// 托管期间的停止只取消 runCtx——app.Run 收到取消后自行收尾，进程绝不 os.Exit。
@@ -151,7 +202,12 @@ func runApplication(ctx context.Context, application *app.App, log *ydlog.Logger
 // serviceOptions derives the service options from the assembled configuration: the service.* section wins and the
 // project metadata is the fallback.
 func serviceOptions(application *app.App) service.Options {
-	opts := service.OptionsFromConfig(application.Config())
+	return serviceOptionsWithMeta(service.OptionsFromConfig(application.Config()))
+}
+
+// serviceOptionsWithMeta fills the project metadata and the absolute service paths. |
+// serviceOptionsWithMeta 填充项目元信息与服务的绝对路径。
+func serviceOptionsWithMeta(opts service.Options) service.Options {
 	if opts.Name == "" {
 		opts.Name = meta.Name
 	}
@@ -166,7 +222,71 @@ func serviceOptions(application *app.App) service.Options {
 		// The default arguments enter service mode explicitly, so a managed start no longer relies on the terminal probe.
 		opts.Arguments = []string{"-service", "run"}
 	}
+	// 服务管理器启动进程时的工作目录不可依赖：systemd 用 /，Windows SCM 用 System32。安装期把项目目录
+	// 固定下来，并通过环境变量传入绝对配置路径；Windows 忽略 WorkingDirectory，因此环境变量是唯一可靠通道。 |
+	// The working directory a service manager starts in cannot be relied on: systemd uses / and Windows SCM uses
+	// System32. Pin the project directory at install time and pass absolute configuration paths through the
+	// environment; Windows ignores WorkingDirectory, so the environment is the only reliable channel there.
+	if opts.WorkingDirectory == "" {
+		if wd, err := os.Getwd(); err == nil && wd != "" {
+			opts.WorkingDirectory = wd
+		}
+	} else if !filepath.IsAbs(opts.WorkingDirectory) {
+		// A relative service.working_directory resolves against the install-time directory, not
+		// against whatever cwd the service manager chooses. | 相对的 service.working_directory
+		// 以安装时目录为基准，而不是服务管理器选择的任意工作目录。
+		if wd, err := os.Getwd(); err == nil && wd != "" {
+			opts.WorkingDirectory = filepath.Join(wd, opts.WorkingDirectory)
+		}
+	}
+	if opts.WorkingDirectory != "" {
+		if opts.EnvVars == nil {
+			opts.EnvVars = map[string]string{}
+		}
+		if _, ok := opts.EnvVars["YD_CONFIG_DIR"]; !ok {
+			opts.EnvVars["YD_CONFIG_DIR"] = filepath.Join(opts.WorkingDirectory, "configs")
+		}
+		if _, ok := opts.EnvVars["YD_NODE_ID_FILE"]; !ok {
+			opts.EnvVars["YD_NODE_ID_FILE"] = filepath.Join(opts.WorkingDirectory, ".yd", "node-id")
+		}
+	}
 	return opts
+}
+
+// serviceOptionsStandalone builds service options from the configuration alone, without assembling the
+// database, cache, queues or HTTP stack. It is the control-action path. |
+// serviceOptionsStandalone 仅从配置构造服务选项，不装配数据库、缓存、队列或 HTTP 栈。它服务于控制动作。
+func serviceOptionsStandalone() (service.Options, error) {
+	cfg, err := config.Load(config.Options{ConfigDir: meta.ConfigDirPath()})
+	if err != nil {
+		return service.Options{}, errs.Wrap(err, ErrAssemble)
+	}
+	return serviceOptionsFromConfig(cfg), nil
+}
+
+// runServiceControl performs one service-manager action and logs nothing about the application. |
+// runServiceControl 执行一次服务管理器动作，不涉及应用装配。
+func runServiceControl(log *ydlog.Logger, action service.Action) error {
+	opts, err := serviceOptionsStandalone()
+	if err != nil {
+		return errs.Wrap(err, ErrService)
+	}
+	result, err := service.Control(opts, action)
+	if err != nil {
+		return errs.WrapDetail(err, ErrService, "action=%s", action)
+	}
+	log.Info("service action result | 服务动作结果",
+		ydlog.Str("action", string(action)),
+		ydlog.Str("result", result),
+	)
+	return nil
+}
+
+// serviceOptionsFromConfig derives options from a configuration without an App. | serviceOptionsFromConfig
+// 从配置（而非 App）推导服务选项。
+func serviceOptionsFromConfig(cfg *config.Config) service.Options {
+	opts := service.OptionsFromConfig(cfg)
+	return serviceOptionsWithMeta(opts)
 }
 
 // assemble 装配应用门面：资产 → 配置 → 中间件 → 静态挂载 → i18n → 路由。
@@ -210,6 +330,10 @@ func assemble(log *ydlog.Logger) (*app.App, error) {
 	application.UseObserved(middleware.MetricsDescriptor("request-id"), ydmw.RequestID(""))
 	application.UseObserved(middleware.MetricsDescriptor("access-log"), ydmw.AccessLog(log))
 	application.UseObserved(middleware.MetricsDescriptor("security"), middleware.Security())
+	// 同源守卫紧随安全头之后：不安全方法在进入表单解析、鉴权与业务之前就被拒绝，403 仍带安全头。 |
+	// The origin guard follows the security headers: unsafe methods are refused before form parsing,
+	// authentication and business work, and the 403 still carries the security headers.
+	application.UseObserved(middleware.MetricsDescriptor("origin"), middleware.OriginGuard())
 	application.UseObserved(middleware.MetricsDescriptor("compress"), ydmw.Compress(ydmw.CompressOptions{}))
 	application.UseObserved(middleware.MetricsDescriptor("cors"), ydmw.CORS(ydmw.CORSOptions{}))
 {{- if .WAF }}
@@ -232,7 +356,7 @@ func assemble(log *ydlog.Logger) (*app.App, error) {
 	// The shared script bundle is assembled by the web package at startup in shell order; production pages
 	// request this single file, while development and any failed assembly fall back to the individual scripts.
 	// The exact route registers first and the static wildcard serves everything else.
-	if meta.IsProduction() {
+	if meta.Production(application.Config()) {
 		parts := web.InitBundles(application.Config().GetInt("bundle.max_bytes"))
 		if len(parts) > 0 {
 			for _, part := range parts {

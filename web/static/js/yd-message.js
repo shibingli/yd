@@ -5,6 +5,25 @@
   var yd = window.yd || {};
   window.yd = yd;
 
+  /* EVENTS 是后端 messaging.Event* 常量的前端镜像。事件名只允许在这里出现一次，
+     其余位置一律引用本对象，避免前后端各自维护一份字符串。 |
+     EVENTS mirrors the backend messaging.Event* constants. Event names appear only here and every
+     other site references this object, so the two sides never maintain separate copies. */
+  var EVENTS = {
+    MESSAGE_CREATED: "message.created",
+    MESSAGE_READ: "message.read",
+    CONVERSATION_CHANGED: "conversation.changed",
+    MESSAGE_PREFIX: "message.",
+    FRIEND_PREFIX: "friend."
+  };
+  yd.EVENTS = yd.EVENTS || EVENTS;
+
+  /* UPLOAD_STATES 是 data-yd-upload-<state> 的机器值；字面量只在这里出现，
+     状态写入与模板属性名因此不会各自漂移。 |
+     UPLOAD_STATES holds the machine values behind data-yd-upload-<state>; the literals appear only
+     here, so the status writes and the template attribute names cannot drift apart. */
+  var UPLOAD_STATES = {UPLOADING: "uploading", UPLOADED: "uploaded", FAILED: "failed"};
+
   /* 去抖间隔：一次消息写入通常伴随 badge、notice 与 JSON 事件，刷新只需发生一次。 | Debounce interval: one write usually produces a badge, a notice and a JSON event, and the refresh only needs to happen once. */
   var REFRESH_DELAY = 180;
 
@@ -208,8 +227,18 @@
     if (!document.getElementById("yd-friends-panel") || !window.htmx) {
       return;
     }
+    /* 好友列表分页后，实时刷新必须留在当前页：从地址栏取 page 并原样传给片段。 |
+       After friend-list pagination the realtime refresh must stay on the current page: read page
+       from the address bar and pass it to the fragment unchanged. */
+    var page = "";
     try {
-      window.htmx.ajax("GET", "/friends/summary", {
+      page = new URLSearchParams(window.location.search).get("page") || "";
+    } catch (error) {
+      page = "";
+    }
+    var url = "/friends/summary" + (page ? "?page=" + encodeURIComponent(page) : "");
+    try {
+      window.htmx.ajax("GET", url, {
         target: "#yd-friends-panel",
         swap: "outerMorph"
       });
@@ -262,7 +291,7 @@
        peer's read only affects receipts on my own messages. Refetch history only when someone else read and the
        open thread really contains my messages; the rail never moves. Previously every read event made every group
        client refetch the whole history and rail, so one message in an N-member group multiplied into N full renders. */
-    if (kind === "message.read") {
+    if (kind === EVENTS.MESSAGE_READ) {
       if (!self && conversationID && activeConversation() === conversationID && hasOwnMessages()) {
         if (readTimer) {
           window.clearTimeout(readTimer);
@@ -281,23 +310,23 @@
        的 lastSendAt 为 0，仍会正常刷新。 |
        A message just sent from this tab was already rendered by the POST response, so the echoed self created
        event needs no second refresh. Other tabs keep lastSendAt at 0 and still refresh normally. */
-    if (kind === "message.created" && self && Date.now() - lastSendAt < 2500) {
+    if (kind === EVENTS.MESSAGE_CREATED && self && Date.now() - lastSendAt < 2500) {
       return;
     }
 
-    if (kind.indexOf("message.") === 0 || kind === "conversation.changed") {
+    if (kind.indexOf(EVENTS.MESSAGE_PREFIX) === 0 || kind === EVENTS.CONVERSATION_CHANGED) {
       if (conversationID && activeConversation() === conversationID) {
         // 只有「新消息」可以增量追加；编辑、撤回、置顶与已读回执都可能改变已渲染的卡片。 |
         // Only a new message can be appended; edits, recalls, pins and read receipts may change cards already
         // on screen.
-        var appendable = kind === "message.created";
+        var appendable = kind === EVENTS.MESSAGE_CREATED;
         debounce("thread", function () {
           refreshThread(conversationID, appendable);
         });
       }
       debounce("conversations", refreshConversations);
     }
-    if (kind.indexOf("friend.") === 0) {
+    if (kind.indexOf(EVENTS.FRIEND_PREFIX) === 0) {
       debounce("friends", function () {
         refreshFriends();
         refreshFriendSearch();
@@ -657,7 +686,7 @@
       return;
     }
     form.__ydUploading = true;
-    setUploadStatus(form, "uploading");
+    setUploadStatus(form, UPLOAD_STATES.UPLOADING);
     try {
       if (typeof form.requestSubmit === "function") {
         form.requestSubmit();
@@ -666,7 +695,7 @@
       }
     } catch (error) {
       form.__ydUploading = false;
-      setUploadStatus(form, "failed");
+      setUploadStatus(form, UPLOAD_STATES.FAILED);
       syncUploadForm(form);
     }
   }
@@ -681,7 +710,7 @@
       var upload = uploadForm(elt);
       if (upload) {
         upload.__ydUploading = true;
-        setUploadStatus(upload, "uploading");
+        setUploadStatus(upload, UPLOAD_STATES.UPLOADING);
         syncUploadForm(upload);
         return;
       }
@@ -716,9 +745,9 @@
             uploadInput.value = "";
           }
           clearUploadError(upload);
-          setUploadStatus(upload, "uploaded");
+          setUploadStatus(upload, UPLOAD_STATES.UPLOADED);
         } else {
-          setUploadStatus(upload, "failed");
+          setUploadStatus(upload, UPLOAD_STATES.FAILED);
         }
         syncUploadForm(upload);
         return;
@@ -743,7 +772,7 @@
         return;
       }
       upload.__ydUploading = false;
-      setUploadStatus(upload, "failed");
+      setUploadStatus(upload, UPLOAD_STATES.FAILED);
       syncUploadForm(upload);
     });
   });

@@ -5,6 +5,7 @@ package gormstore
 import (
 	"context"
 	"errors"
+	"sort"
 	"strings"
 	"time"
 
@@ -111,8 +112,11 @@ func (s *Store) Bind(ctx context.Context, tenantID string, attachmentIDs []strin
 	}
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var locked []attachments.Attachment
+		// 与 Release 相同的 ID 顺序取锁，避免并发绑定/释放形成 ABBA 死锁。 |
+		// Lock in the same id order as Release so concurrent bind/release cannot form an ABBA deadlock.
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("tenant_id = ? AND id IN ?", tenantID, attachmentIDs).
+			Order("id ASC").
 			Find(&locked).Error; err != nil {
 			return queryError(err)
 		}
@@ -147,7 +151,12 @@ func (s *Store) Bind(ctx context.Context, tenantID string, attachmentIDs []strin
 }
 
 // Release removes every reference of one business object and returns attachments with no remaining
-// references to pending. | Release 删除一个业务对象的全部引用，并把不再有引用的附件退回 pending。
+// references to pending. The attachment rows are locked in id order before the references are deleted,
+// the same order Bind takes, so a concurrent bind and release serialise instead of interleaving; the
+// guarded update re-checks NOT EXISTS, so an attachment that gained another reference in the meantime
+// stays referenced. | Release 删除一个业务对象的全部引用，并把不再有引用的附件退回 pending。它在删除
+// 引用之前按 ID 顺序锁定附件行，与 Bind 的加锁顺序一致，并发绑定与释放因此串行而非交错；带条件的更新
+// 会复查 NOT EXISTS，期间获得其它引用的附件保持 referenced。
 func (s *Store) Release(ctx context.Context, tenantID string, ref attachments.Ref, at time.Time) error {
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var ids []string
@@ -159,15 +168,43 @@ func (s *Store) Release(ctx context.Context, tenantID string, ref attachments.Re
 		if len(ids) == 0 {
 			return nil
 		}
+		ids = uniqueSortedIDs(ids)
+		var locked []attachments.Attachment
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("tenant_id = ? AND id IN ?", tenantID, ids).
+			Order("id ASC").
+			Find(&locked).Error; err != nil {
+			return queryError(err)
+		}
 		if err := tx.Where("tenant_id = ? AND ref_type = ? AND ref_id = ?", tenantID, ref.Type, ref.ID).
 			Delete(&attachments.RefBinding{}).Error; err != nil {
 			return queryError(err)
 		}
-		return tx.Model(&attachments.Attachment{}).
+		return queryError(tx.Model(&attachments.Attachment{}).
 			Where("tenant_id = ? AND id IN ? AND status = ? AND NOT EXISTS (SELECT 1 FROM yd_attachment_refs r WHERE r.tenant_id = yd_attachments.tenant_id AND r.attachment_id = yd_attachments.id)",
 				tenantID, ids, attachments.StatusReferenced).
-			Updates(map[string]any{"status": attachments.StatusPending, "released_at": at}).Error
+			Updates(map[string]any{"status": attachments.StatusPending, "released_at": at}).Error)
 	})
+}
+
+// uniqueSortedIDs de-duplicates and orders ids so every writer locks rows in the same sequence. |
+// uniqueSortedIDs 去重并排序 ID，使所有写入者以相同顺序锁定行。
+func uniqueSortedIDs(ids []string) []string {
+	seen := make(map[string]struct{}, len(ids))
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // MarkDeleted turns one record into a tombstone. | MarkDeleted 把一条记录变成墓碑。
@@ -267,8 +304,14 @@ func (s *Store) DeleteExpiredPending(ctx context.Context, tenantID string, befor
 	}
 	var deleted []attachments.Attachment
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// 只有确实没有任何引用的 pending 才是候选；引用行可能由并发的 Bind 在查询与更新之间出现，
+		// 因此候选查询与带条件更新都必须复查 NOT EXISTS。
+		// Only a pending upload with no references at all is a candidate; a concurrent Bind can insert a
+		// reference between the query and the update, so both the candidate query and the guarded update
+		// re-check NOT EXISTS.
 		if err := tx.Model(&attachments.Attachment{}).
 			Where("tenant_id = ? AND status = ? AND COALESCE(released_at, created_at) < ?", tenantID, attachments.StatusPending, before).
+			Where("NOT EXISTS (SELECT 1 FROM yd_attachment_refs r WHERE r.tenant_id = yd_attachments.tenant_id AND r.attachment_id = yd_attachments.id)").
 			Clauses(clause.Locking{Strength: "UPDATE"}).
 			Order("COALESCE(released_at, created_at) ASC").
 			Limit(batch).
@@ -284,10 +327,11 @@ func (s *Store) DeleteExpiredPending(ctx context.Context, tenantID string, befor
 		}
 		if err := tx.Model(&attachments.Attachment{}).
 			Where("tenant_id = ? AND id IN ? AND status = ?", tenantID, ids, attachments.StatusPending).
+			Where("NOT EXISTS (SELECT 1 FROM yd_attachment_refs r WHERE r.tenant_id = yd_attachments.tenant_id AND r.attachment_id = yd_attachments.id)").
 			Updates(map[string]any{
 				"status":        attachments.StatusDeleted,
 				"deleted_at":    at,
-				"deleted_by":    "system",
+				"deleted_by":    attachments.DeletedBySystem,
 				"delete_reason": reason,
 			}).Error; err != nil {
 			return queryError(err)
@@ -313,8 +357,12 @@ func (s *Store) DeleteExpiredPendingAll(ctx context.Context, before, at time.Tim
 	}
 	var deleted []attachments.Attachment
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// 跨租户清理同样只清理真正无引用的 pending；候选与更新都复查 NOT EXISTS。 |
+		// The cross-tenant sweep likewise removes only pending uploads with no references; both the
+		// candidate query and the update re-check NOT EXISTS.
 		if err := tx.Model(&attachments.Attachment{}).
 			Where("status = ? AND COALESCE(released_at, created_at) < ?", attachments.StatusPending, before).
+			Where("NOT EXISTS (SELECT 1 FROM yd_attachment_refs r WHERE r.tenant_id = yd_attachments.tenant_id AND r.attachment_id = yd_attachments.id)").
 			Clauses(clause.Locking{Strength: "UPDATE"}).
 			Order("COALESCE(released_at, created_at) ASC").
 			Limit(batch).
@@ -330,10 +378,11 @@ func (s *Store) DeleteExpiredPendingAll(ctx context.Context, before, at time.Tim
 		}
 		if err := tx.Model(&attachments.Attachment{}).
 			Where("id IN ? AND status = ?", ids, attachments.StatusPending).
+			Where("NOT EXISTS (SELECT 1 FROM yd_attachment_refs r WHERE r.tenant_id = yd_attachments.tenant_id AND r.attachment_id = yd_attachments.id)").
 			Updates(map[string]any{
 				"status":        attachments.StatusDeleted,
 				"deleted_at":    at,
-				"deleted_by":    "system",
+				"deleted_by":    attachments.DeletedBySystem,
 				"delete_reason": reason,
 			}).Error; err != nil {
 			return queryError(err)

@@ -83,8 +83,20 @@ func (s *Store) GetType(ctx context.Context, tenantID, key string) (messaging.Me
 	return t, nil
 }
 
-// CreateType stores one custom type. | CreateType 保存一个自定义类型。
+// CreateType stores one custom type after an explicit existence pre-check, so a duplicate key is
+// reported as ErrConflict rather than a generic statement failure. The unique index still arbitrates a
+// concurrent insert through createError. | CreateType 先做显式存在性预查再保存自定义类型，重复键因此
+// 报告为 ErrConflict 而不是泛化的语句失败；并发插入仍由唯一索引经 createError 裁决。
 func (s *Store) CreateType(ctx context.Context, t messaging.MessageType) error {
+	var count int64
+	if err := s.dbc(ctx).Model(&messaging.MessageType{}).
+		Where("tenant_id = ? AND type_key = ?", t.TenantID, t.Key).
+		Count(&count).Error; err != nil {
+		return queryError(err)
+	}
+	if count > 0 {
+		return errs.Detail(ErrConflict, "type_key=%[1]q | 类型键=%[1]q", t.Key)
+	}
 	if err := s.dbc(ctx).Create(&t).Error; err != nil {
 		return createError(err)
 	}
@@ -167,8 +179,20 @@ func (s *Store) GetTags(ctx context.Context, tenantID string, ids []string) ([]m
 	return out, nil
 }
 
-// CreateTag stores one group or label. | CreateTag 保存一个分组或标签。
+// CreateTag stores one group or label after an explicit existence pre-check, so a duplicate key is
+// reported as ErrConflict rather than a generic statement failure. The unique index still arbitrates a
+// concurrent insert through createError. | CreateTag 先做显式存在性预查再保存分组或标签，重复键因此
+// 报告为 ErrConflict 而不是泛化的语句失败；并发插入仍由唯一索引经 createError 裁决。
 func (s *Store) CreateTag(ctx context.Context, t messaging.Tag) error {
+	var count int64
+	if err := s.dbc(ctx).Model(&messaging.Tag{}).
+		Where("tenant_id = ? AND kind = ? AND tag_key = ?", t.TenantID, t.Kind, t.Key).
+		Count(&count).Error; err != nil {
+		return queryError(err)
+	}
+	if count > 0 {
+		return errs.Detail(ErrConflict, "tag_key=%[1]q | 标签键=%[1]q", t.Key)
+	}
 	if err := s.dbc(ctx).Create(&t).Error; err != nil {
 		return createError(err)
 	}

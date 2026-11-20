@@ -8,7 +8,7 @@
 */}}
 {{- define "mgr/partials/message_settings/tag_form" -}}
 <div class="yd-drawer__head">
-  <h2 class="yd-section__title">{{ if eq .Mode "edit" }}{{ tr "message.settings.edit_tag" }}{{ else }}{{ tr "message.settings.new_tag" }}{{ end }}</h2>
+  <h2 class="yd-section__title">{{ if .IsEdit }}{{ tr "message.settings.edit_tag" }}{{ else }}{{ tr "message.settings.new_tag" }}{{ end }}</h2>
   <p class="yd-section__hint">{{ tr "message.settings.tag_hint" }}</p>
 </div>
 <form class="yd-form" method="post" action="/mgr/message-settings/tags"
@@ -16,21 +16,19 @@
       hx-status:409="target:#yd-drawer-errors swap:innerHTML"
       hx-status:422="target:#yd-drawer-errors swap:innerHTML"
       data-yd-confirm="{{ tr "confirm.save_tag" }}">
-  {{- if eq .Mode "edit" }}
+  {{- if .IsEdit }}
   <input type="hidden" name="id" value="{{ .Item.ID }}">
   <input type="hidden" name="kind" value="{{ .Kind }}">
   {{- else }}
   {{template "components.form.select" (dict
     "ID" "yd-tag-kind" "Name" "kind"
     "Label" (tr "message.settings.tag_kind") "LabelKey" "message.settings.tag_kind"
-    "Options" (list
-      (dict "Value" "group" "Label" (tr "message.settings.group") "Key" "message.settings.group" "Selected" (eq .Kind "group"))
-      (dict "Value" "tag" "Label" (tr "message.settings.tag") "Key" "message.settings.tag" "Selected" (eq .Kind "tag"))))}}
+    "Options" .Kinds)}}
   {{- end }}
   {{template "components.form.field" (dict
     "ID" "yd-tag-key" "Name" "key" "Type" "text" "Value" .Item.Key
     "Label" (tr "message.settings.key") "LabelKey" "message.settings.key"
-    "MaxLength" 64 "Required" true "Readonly" (eq .Mode "edit"))}}
+    "MaxLength" 64 "Required" true "Readonly" (.IsEdit))}}
   {{template "components.form.field" (dict
     "ID" "yd-tag-name" "Name" "name" "Type" "text" "Value" .Item.Name
     "Label" (tr "message.settings.name_zh") "LabelKey" "message.settings.name_zh"

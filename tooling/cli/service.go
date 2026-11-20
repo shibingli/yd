@@ -224,6 +224,40 @@ func serviceOptions(ctx context.Context, env *Env, fs *pflag.FlagSet, action ser
 		return service.Options{}, err
 	}
 	opts.Executable = binary
+	// The working directory a service manager starts in cannot be relied on (systemd uses /,
+	// Windows SCM uses System32). Install time pins the project directory and passes the absolute
+	// paths of the configuration and node-identity files through the environment; Windows ignores
+	// WorkingDirectory, so the environment is the only reliable channel there. |
+	// 服务管理器启动进程时的工作目录不可依赖（systemd 用 /，Windows SCM 用 System32）。安装期把项目目录
+	// 固定下来，并把配置与节点身份文件的绝对路径经环境变量传入；Windows 忽略 WorkingDirectory，因此
+	// 环境变量是唯一可靠通道。
+	if opts.WorkingDirectory == "" {
+		dir := serviceDir(env, fs)
+		if abs, absErr := filepath.Abs(dir); absErr == nil {
+			opts.WorkingDirectory = abs
+		} else {
+			opts.WorkingDirectory = dir
+		}
+	} else if !filepath.IsAbs(opts.WorkingDirectory) {
+		// A relative service.working_directory resolves against the project directory being
+		// installed, not against the service manager's startup directory. | 相对的
+		// service.working_directory 以正在安装的项目目录为基准，而不是服务管理器的启动目录。
+		dir := serviceDir(env, fs)
+		if abs, absErr := filepath.Abs(filepath.Join(dir, opts.WorkingDirectory)); absErr == nil {
+			opts.WorkingDirectory = abs
+		}
+	}
+	if opts.WorkingDirectory != "" {
+		if opts.EnvVars == nil {
+			opts.EnvVars = map[string]string{}
+		}
+		if _, ok := opts.EnvVars["YD_CONFIG_DIR"]; !ok {
+			opts.EnvVars["YD_CONFIG_DIR"] = filepath.Join(opts.WorkingDirectory, "configs")
+		}
+		if _, ok := opts.EnvVars["YD_NODE_ID_FILE"]; !ok {
+			opts.EnvVars["YD_NODE_ID_FILE"] = filepath.Join(opts.WorkingDirectory, ".yd", "node-id")
+		}
+	}
 	return opts, nil
 }
 

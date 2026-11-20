@@ -193,6 +193,9 @@ func (s *Service) Edit(ctx context.Context, actor Actor, messageID string, in Ed
 	if err != nil {
 		return MessageView{}, err
 	}
+	if err := requireMutableConversation(conv); err != nil {
+		return MessageView{}, err
+	}
 	now := s.options.Now()
 	// System content belongs to message:system even for an actor with message:manage. |
 	// 系统内容属于 message:system，即使主体持有 message:manage 也不例外。
@@ -258,7 +261,7 @@ func (s *Service) Edit(ctx context.Context, actor Actor, messageID string, in Ed
 			CreatedAt:      now,
 			TenantID:       actor.TenantID,
 			ActorID:        actor.ID,
-			Action:         "message.edit",
+			Action:         AuditActionEdit,
 			MessageID:      msg.ID,
 			ConversationID: conv.ID,
 			Detail:         auditDetail(map[string]string{"sender": msg.SenderID}),
@@ -284,6 +287,9 @@ func (s *Service) Recall(ctx context.Context, actor Actor, messageID, reason str
 	}
 	msg, conv, members, err := s.messageForChange(ctx, actor, messageID)
 	if err != nil {
+		return err
+	}
+	if err := requireMutableConversation(conv); err != nil {
 		return err
 	}
 	if msg.Recalled() {
@@ -312,7 +318,7 @@ func (s *Service) Recall(ctx context.Context, actor Actor, messageID, reason str
 		CreatedAt:      now,
 		TenantID:       actor.TenantID,
 		ActorID:        actor.ID,
-		Action:         "message.recall",
+		Action:         AuditActionRecall,
 		MessageID:      msg.ID,
 		ConversationID: conv.ID,
 		Detail: auditDetail(map[string]string{
@@ -342,6 +348,9 @@ func (s *Service) Pin(ctx context.Context, actor Actor, messageID string, start,
 	if err != nil {
 		return err
 	}
+	if err := requireMutableConversation(conv); err != nil {
+		return err
+	}
 	if msg.Origin != OriginSystem {
 		return ErrPinNotAllowed
 	}
@@ -368,7 +377,7 @@ func (s *Service) Pin(ctx context.Context, actor Actor, messageID string, start,
 		CreatedAt:      now,
 		TenantID:       actor.TenantID,
 		ActorID:        actor.ID,
-		Action:         "message.pin",
+		Action:         AuditActionPin,
 		MessageID:      msg.ID,
 		ConversationID: conv.ID,
 		Detail:         auditDetail(map[string]string{"start": formatTimePtr(start), "end": formatTimePtr(end)}),
@@ -389,6 +398,9 @@ func (s *Service) Unpin(ctx context.Context, actor Actor, messageID string) erro
 	if err != nil {
 		return err
 	}
+	if err := requireMutableConversation(conv); err != nil {
+		return err
+	}
 	if msg.Origin != OriginSystem {
 		return ErrPinNotAllowed
 	}
@@ -403,7 +415,7 @@ func (s *Service) Unpin(ctx context.Context, actor Actor, messageID string) erro
 		CreatedAt:      now,
 		TenantID:       actor.TenantID,
 		ActorID:        actor.ID,
-		Action:         "message.unpin",
+		Action:         AuditActionUnpin,
 		MessageID:      msg.ID,
 		ConversationID: conv.ID,
 	}
@@ -533,10 +545,7 @@ func (s *Service) messageViews(ctx context.Context, actor Actor, messages []Mess
 			}
 		}
 		if msg.Recalled() && !actor.Manage {
-			view.BodyMarkdown = ""
-			view.BodyHTML = ""
-			view.BodyText = ""
-			view.Title = ""
+			stripRecalled(&view.Message)
 			view.Attachments = nil
 		}
 		out = append(out, view)
@@ -623,9 +632,11 @@ func (s *Service) resolveTags(ctx context.Context, actor Actor, groupIDs, tagIDs
 	return out, nil
 }
 
-// messageWriteError preserves the business sentinels of a concurrent tag/type deletion; wrapping
-// them only as ErrUnavailable would turn a 422 into a misleading 503. |
-// messageWriteError 保留并发删除标签/类型时的业务哨兵；只包装为 ErrUnavailable 会把 422 误报成 503。
+// messageWriteError preserves the business sentinels of a concurrent tag/type deletion or a
+// conversation/membership recheck inside the insert transaction; wrapping them only as ErrUnavailable
+// would turn a 422 into a misleading 503. |
+// messageWriteError 保留并发删除标签/类型，以及插入事务内会话/成员复查的业务哨兵；只包装为
+// ErrUnavailable 会把 422 误报成 503。
 func messageWriteError(err error) error {
 	switch {
 	case errors.Is(err, ErrTagUnknown):
@@ -634,9 +645,40 @@ func messageWriteError(err error) error {
 		return ErrTypeUnknown
 	case errors.Is(err, ErrRecalled):
 		return ErrRecalled
+	case errors.Is(err, ErrAttachmentNotFound):
+		return ErrAttachmentNotFound
+	case errors.Is(err, ErrConversationClosed):
+		return ErrConversationClosed
+	case errors.Is(err, ErrNotFriend):
+		return ErrNotFriend
+	case errors.Is(err, ErrBlocked):
+		return ErrBlocked
+	case errors.Is(err, ErrNotFound):
+		return ErrNotFound
 	default:
 		return errs.Wrap(err, ErrUnavailable)
 	}
+}
+
+// stripRecalled clears the content fields of a recalled message for a reader without moderation
+// rights. Both the thread view and the conversation-list preview go through it so a title can never
+// leak from a tombstone. | stripRecalled 为没有管理权的读者清空已撤回消息的内容字段。线程视图与
+// 会话列表预览共用它，墓碑标题因此绝不会泄漏。
+func stripRecalled(msg *Message) {
+	msg.Title = ""
+	msg.BodyMarkdown = ""
+	msg.BodyHTML = ""
+	msg.BodyText = ""
+}
+
+// requireMutableConversation refuses every mutation of a private notice channel: it is read-only for
+// its recipient and its only writer is the system notifier. | requireMutableConversation 拒绝私有
+// 通知频道的一切变更：它对收件人只读，唯一的写入方是系统通知器。
+func requireMutableConversation(conv Conversation) error {
+	if conv.Kind == KindNotice {
+		return errs.Detail(ErrForbidden, "the notice channel is read-only | 通知频道只读")
+	}
+	return nil
 }
 
 // pendingAttachments validates the upload ids and returns the pending rows. | pendingAttachments 校验上传 ID 并返回待挂载记录。

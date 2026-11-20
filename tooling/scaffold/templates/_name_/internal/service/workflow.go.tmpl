@@ -74,6 +74,14 @@ const (
 	ConfigWorkflowAIMinConfidence = "workflow.ai.min_confidence"
 )
 
+// Workflow notification channel names. | 流程通知渠道名。
+const (
+	// workflowChannelMessage writes notices into the message centre. | workflowChannelMessage 把通知写入消息中心。
+	workflowChannelMessage = "message"
+	// workflowChannelLog writes notices through the framework logger. | workflowChannelLog 通过框架日志写出通知。
+	workflowChannelLog = "log"
+)
+
 // ErrWorkflowUnavailable reports a process engine without a usable store or directory. |
 // ErrWorkflowUnavailable 表示流程引擎没有可用存储或目录。
 var ErrWorkflowUnavailable = errs.New("workflow service is unavailable | 流程服务不可用")
@@ -115,6 +123,12 @@ func NewWorkflowService(cfg *config.Config, store workflow.Store, authSvc *auth.
 		PageSize:           cfg.GetInt(ConfigWorkflowPageSize),
 		MaxImportBytes:     cfg.GetInt(ConfigWorkflowMaxImportBytes),
 		NotifyEvents:       cfg.GetStringSlice(ConfigWorkflowNotifyEvents),
+		// The engine re-checks cached AI answers against this threshold before applying them, so
+		// the decider and the engine must read the same key. Zero or an out-of-range value is
+		// normalised to the engine default (0.7) inside workflow.Options. | 引擎在应用缓存 AI
+		// 结论前会按该阈值复检，因此决策器与引擎必须读取同一个键。零值或越界值由
+		// workflow.Options 归一化为引擎默认值 0.7。
+		MinAIConfidence: cfg.GetFloat64(ConfigWorkflowAIMinConfidence),
 	}
 	lang := strings.TrimSpace(cfg.GetString(ConfigWorkflowNotifyLang))
 	if lang == "" {
@@ -171,21 +185,21 @@ func NewWorkflowService(cfg *config.Config, store workflow.Store, authSvc *auth.
 func workflowChannels(cfg *config.Config, messages *MessageService, log *ydlog.Logger) ([]workflow.Channel, error) {
 	selected := cfg.GetStringSlice(ConfigWorkflowNotifyChannels)
 	if len(selected) == 0 {
-		selected = []string{"message"}
+		selected = []string{workflowChannelMessage}
 	}
 	enabled := make(map[string]bool, len(selected))
 	for _, name := range selected {
 		enabled[strings.ToLower(strings.TrimSpace(name))] = true
 	}
 	channels := make([]workflow.Channel, 0, 4)
-	if enabled["message"] {
+	if enabled[workflowChannelMessage] {
 		if messages != nil && messages.Available() {
 			channels = append(channels, &workflowMessageChannel{messages: messages})
 		} else {
 			log.Warn("workflow in-app notifications are disabled because the message centre is unavailable | 消息中心不可用，流程站内通知已关闭")
 		}
 	}
-	if enabled["log"] {
+	if enabled[workflowChannelLog] {
 		channels = append(channels, &notify.LogChannel{Logger: log})
 	}
 	if enabled["webhook"] {
@@ -260,7 +274,7 @@ type workflowMessageChannel struct {
 }
 
 // Name returns the channel name. | Name 返回渠道名。
-func (c *workflowMessageChannel) Name() string { return "message" }
+func (c *workflowMessageChannel) Name() string { return workflowChannelMessage }
 
 // Send writes one in-app notice. | Send 写入一条站内通知。
 func (c *workflowMessageChannel) Send(ctx context.Context, note workflow.Notification) error {

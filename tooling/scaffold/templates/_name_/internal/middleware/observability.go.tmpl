@@ -6,6 +6,22 @@ package middleware
 
 import "{{ .YdModule }}/runtime/metricsx"
 
+// Stable middleware names shared by the dashboard descriptors and the router wiring. |
+// 仪表盘描述符与路由接线共享的中间件稳定名称。
+const (
+	// NameCacheBypass is the cache-bypass middleware. | NameCacheBypass 是缓存旁路中间件。
+	NameCacheBypass = "cache-bypass"
+	// NamePromote lifts the cookie token into the Authorization header. | NamePromote 把 cookie 令牌提升为
+	// Authorization 请求头。
+	NamePromote = "promote"
+	// NameAuth verifies the session token. | NameAuth 校验会话令牌。
+	NameAuth = "auth"
+	// NameAuthz builds the authorization subject. | NameAuthz 构造授权主体。
+	NameAuthz = "authz"
+	// NameTenant resolves the request tenant. | NameTenant 解析请求租户。
+	NameTenant = "tenant"
+)
+
 // builtInDescriptors maps the stable middleware names to their dashboard descriptors. | builtInDescriptors 把稳定的
 // 中间件名称映射到仪表盘描述符。
 //
@@ -53,28 +69,28 @@ var builtInDescriptors = map[string]metricsx.Descriptor{
 		TitleKey: "metrics.middleware.name.i18n",
 		Scope:    metricsx.ScopeGlobal,
 	},
-	"cache-bypass": {
-		Name:     "cache-bypass",
+	NameCacheBypass: {
+		Name:     NameCacheBypass,
 		TitleKey: "metrics.middleware.name.cache_bypass",
 		Scope:    metricsx.ScopeGlobal,
 	},
-	"promote": {
-		Name:     "promote",
+	NamePromote: {
+		Name:     NamePromote,
 		TitleKey: "metrics.middleware.name.promote",
 		Scope:    metricsx.ScopeRoute,
 	},
-	"auth": {
-		Name:     "auth",
+	NameAuth: {
+		Name:     NameAuth,
 		TitleKey: "metrics.middleware.name.auth",
 		Scope:    metricsx.ScopeRoute,
 	},
-	"authz": {
-		Name:     "authz",
+	NameAuthz: {
+		Name:     NameAuthz,
 		TitleKey: "metrics.middleware.name.authz",
 		Scope:    metricsx.ScopeRoute,
 	},
-	"tenant": {
-		Name:     "tenant",
+	NameTenant: {
+		Name:     NameTenant,
 		TitleKey: "metrics.middleware.name.tenant",
 		Scope:    metricsx.ScopeRoute,
 	},

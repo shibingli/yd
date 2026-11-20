@@ -4,7 +4,7 @@
 */}}
 {{- define "mgr/partials/message_settings/type_form" -}}
 <div class="yd-drawer__head">
-  <h2 class="yd-section__title">{{ if eq .Mode "edit" }}{{ tr "message.settings.edit_type" }}{{ else }}{{ tr "message.settings.new_type" }}{{ end }}</h2>
+  <h2 class="yd-section__title">{{ if .IsEdit }}{{ tr "message.settings.edit_type" }}{{ else }}{{ tr "message.settings.new_type" }}{{ end }}</h2>
   <p class="yd-section__hint">{{ tr "message.settings.type_hint" }}</p>
 </div>
 <form class="yd-form" method="post" action="/mgr/message-settings/types"
@@ -16,7 +16,7 @@
     "ID" "yd-type-key" "Name" "key" "Type" "text" "Value" .Item.Key
     "Label" (tr "message.settings.key") "LabelKey" "message.settings.key"
     "Hint" (tr "message.settings.key_hint") "HintKey" "message.settings.key_hint"
-    "MaxLength" 64 "Required" true "Readonly" (eq .Mode "edit"))}}
+    "MaxLength" 64 "Required" true "Readonly" (.IsEdit))}}
   {{template "components.form.field" (dict
     "ID" "yd-type-name" "Name" "name" "Type" "text" "Value" .Item.Name
     "Label" (tr "message.settings.name_zh") "LabelKey" "message.settings.name_zh"

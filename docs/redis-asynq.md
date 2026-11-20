@@ -211,7 +211,8 @@ outbox 表；这是业务选择，不是框架默认。
 | `realtime.channel_prefix` | Pub/Sub 命名空间 | 每个环境唯一 |
 | `realtime.queue_size` / `slow_policy` | 订阅端背压 | 实时页面用 `drop`；状态同步类用 `close` 触发重连补拉 |
 | `realtime.max_message_bytes` | 单条上限 | 默认 1MiB；大对象改发引用 |
-| `asynq.queues` / `asynq.concurrency` | 队列权重与并发 | 按延迟等级拆分，实时补发放高优先级 |
+| `asynq.queues` / `asynq.concurrency` | 队列权重与并发（单队列与总权重上限 1000） | 按延迟等级拆分，实时补发放高优先级 |
+| `asynq.max_payload_bytes` | 单个任务序列化载荷上限；<=0 为 1 MiB | 防止超大任务压垮队列与消费者 |
 | `asynq.retry_base` / `asynq.retry_max` | 指数退避 | 外部服务用分钟级上限；内部补发可更短 |
 | `asynq.strict_priority` | 严格优先级 | 有实时补发队列时开启 |
 | `asynq.shutdown_timeout` | 关停预算 | 小于整体优雅退出预算 |

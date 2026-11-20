@@ -40,10 +40,10 @@
       "Label" (tr "field.status") "LabelKey" "field.status" "LabelHidden" true
       "Options" (list
         (dict "Value" "" "Label" (tr "ui.all") "Key" "ui.all" "Selected" (eq .Status ""))
-        (dict "Value" "running" "Label" (tr "workflow.instances.running") "Key" "workflow.instances.running" "Selected" (eq .Status "running"))
-        (dict "Value" "completed" "Label" (tr "workflow.instances.completed") "Key" "workflow.instances.completed" "Selected" (eq .Status "completed"))
-        (dict "Value" "withdrawn" "Label" (tr "workflow.instances.withdrawn") "Key" "workflow.instances.withdrawn" "Selected" (eq .Status "withdrawn"))
-        (dict "Value" "terminated" "Label" (tr "workflow.instances.terminated") "Key" "workflow.instances.terminated" "Selected" (eq .Status "terminated"))))}}
+        (dict "Value" .WorkflowInstanceRunning "Label" (tr "workflow.instances.running") "Key" "workflow.instances.running" "Selected" (eq .Status .WorkflowInstanceRunning))
+        (dict "Value" .WorkflowInstanceCompleted "Label" (tr "workflow.instances.completed") "Key" "workflow.instances.completed" "Selected" (eq .Status .WorkflowInstanceCompleted))
+        (dict "Value" .WorkflowInstanceWithdrawn "Label" (tr "workflow.instances.withdrawn") "Key" "workflow.instances.withdrawn" "Selected" (eq .Status .WorkflowInstanceWithdrawn))
+        (dict "Value" .WorkflowInstanceTerminated "Label" (tr "workflow.instances.terminated") "Key" "workflow.instances.terminated" "Selected" (eq .Status .WorkflowInstanceTerminated))))}}
     <noscript><button type="submit" class="yd-btn">{{ tr "ui.search" }}</button></noscript>
 </form>
 

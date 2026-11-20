@@ -254,6 +254,7 @@ var requiredFiles = []string{
 	"web/templates/partials/sidebar_brand.html",
 	"web/templates/partials/sidebar_footer.html",
 	"web/templates/partials/topbar.html",
+	"web/templates/partials/workflows/comments.html",
 	"web/templates/partials/workflows/instance_detail.html",
 	"web/templates/partials/workflows/labels.html",
 	"web/templates/partials/workflows/task.html",
@@ -737,6 +738,7 @@ func TestGeneratedPersistenceFollowsDatabaseChoice(t *testing.T) {
 		"auth data is stored in the database",
 		"no database is configured, auth data lives in memory",
 		"database unavailable, auth data falls back to memory",
+		"auth schema migration failed, refusing to start on an in-memory fallback",
 		"func (s *Store) Close() error",
 	} {
 		if !strings.Contains(store, want) {
@@ -3514,6 +3516,11 @@ func TestGeneratedI18nCatalogueCoversEveryTrKey(t *testing.T) {
 	// 这里一并扫描这些引用，否则真正被用到的键会被误报为陈旧键。
 	goKeyPatterns := []*regexpx.Regexp{
 		regexpx.MustCompile(`"(metrics\.[a-z0-9_.]+)"`),
+		// Workflow badges are controller-owned maps: the catalogue key lives in Go as a LabelKey
+		// field or as a direct map value, and templates only index the map. | 流程徽标是控制器
+		// 持有的映射：目录键以 LabelKey 字段或映射取值的形式留在 Go 里，模板只做查表。
+		regexpx.MustCompile(`LabelKey:\s*"([a-z0-9_.]+)"`),
+		regexpx.MustCompile(`"(workflow\.(?:decision|event|instance|instances|outcome|status|task|version)\.[a-z0-9_.]+)"`),
 		// The component gallery builds chart copy through a small label(key, fallback) closure, so
 		// its catalogue keys only ever appear as the first argument of that call. | 组件示例通过
 		// label(key, fallback) 闭包生成图表文案，键名只出现在该调用的第一个参数里。
@@ -4651,7 +4658,8 @@ func TestGenerateThemeBootAndAutoTokens(t *testing.T) {
 	for _, want := range []string{
 		"function rememberTheme(theme)",
 		"document.cookie = THEME_KEY",
-		`applyTheme(readTheme() || document.documentElement.getAttribute("data-yd-theme-choice") || "auto")`,
+		`applyTheme(readTheme() || document.documentElement.getAttribute("data-yd-theme-choice") || THEME_AUTO)`,
+		`var THEME_AUTO = THEMES.AUTO;`,
 	} {
 		if !strings.Contains(app, want) {
 			t.Errorf("generated yd-app.js is missing %q | 生成的 yd-app.js 缺少 %q", want, want)
@@ -4845,7 +4853,7 @@ func TestGenerateLanguageToggle(t *testing.T) {
 	if strings.Contains(switches, "yd-switch__item") {
 		t.Error("shell-switches.html still renders the old two-link switcher | shell-switches.html 仍渲染旧的双链接切换")
 	}
-	for _, want := range []string{`data-yd-lang-next="`, `hx-target="#yd-shell"`, `hx-swap="innerMorph"`, `href="{{ .Path }}?lang=`} {
+	for _, want := range []string{`data-yd-lang-next="`, `hx-target="#yd-shell"`, `hx-swap="innerMorph"`, `href="{{ $nextPath }}"`, `LangSwitchPathZh`, `LangSwitchPathEn`} {
 		if !strings.Contains(switches, want) {
 			t.Errorf("shell-switches.html is missing %q | shell-switches.html 缺少 %q", want, want)
 		}
@@ -5044,9 +5052,12 @@ func TestHomeShowsMiddlewareRuntime(t *testing.T) {
 			t.Errorf("metrics_stream.go 缺少 %q | metrics_stream.go is missing %q", want, want)
 		}
 	}
-	for _, name := range []string{"promote", "auth", "authz", "tenant"} {
-		if !strings.Contains(routerSrc, `MetricsDescriptor("`+name+`")`) {
-			t.Errorf("router.go 未观察路由中间件 %q | router.go does not observe route middleware %q", name, name)
+	// The middleware names live in internal/middleware constants now, so a rename cannot leave one
+	// MetricsDescriptor behind. | 中间件名已收敛到 internal/middleware 常量，改名时不会漏掉某处
+	// MetricsDescriptor。
+	for _, name := range []string{"NamePromote", "NameAuth", "NameAuthz", "NameTenant"} {
+		if !strings.Contains(routerSrc, `MetricsDescriptor(middleware.`+name+`)`) {
+			t.Errorf("router.go 未观察路由中间件 middleware.%s | router.go does not observe route middleware middleware.%s", name, name)
 		}
 	}
 
@@ -5597,6 +5608,57 @@ func TestGeneratedWorkflowAPIUnavailableIsJSON(t *testing.T) {
 	}
 }
 
+// TestGeneratedWorkflowAIConfidenceWired asserts the AI confidence key reaches both the decider and
+// the engine options. The engine re-checks cached answers against workflow.Options.MinAIConfidence;
+// setting only the decider would silently keep the default 0.7 and ignore a configured 0.5. |
+// TestGeneratedWorkflowAIConfidenceWired 断言 AI 置信度键同时进入决策器与引擎选项。引擎会按
+// workflow.Options.MinAIConfidence 复检缓存结论；只设置决策器会让默认 0.7 悄悄生效，配置的 0.5
+// 被忽略。
+func TestGeneratedWorkflowAIConfidenceWired(t *testing.T) {
+	pr, _ := generateMem(t, scaffold.DefaultOptions("workflow-ai-confidence"))
+	src := pr.read("internal/service/workflow.go")
+	for _, want := range []string{
+		"MinAIConfidence: cfg.GetFloat64(ConfigWorkflowAIMinConfidence)",
+		"MinConfidence: cfg.GetFloat64(ConfigWorkflowAIMinConfidence)",
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("workflow.go 缺少 AI 置信度接线 %q", want)
+		}
+	}
+}
+
+// TestGeneratedWorkflowTemplatesUseStatusConstants asserts the workflow templates never compare raw
+// engine status, decision or outcome strings. Badges and labels come from the controller maps, and
+// filters compare against the injected constants, so a renamed engine constant cannot leave a
+// silently dead branch in a template. | TestGeneratedWorkflowTemplatesUseStatusConstants 断言流程模板
+// 不再比较引擎状态、决策或结果的裸字符串。徽标与标签来自控制器映射，筛选用注入常量比较，引擎常量
+// 改名不会在模板里留下静默失效的分支。
+func TestGeneratedWorkflowTemplatesUseStatusConstants(t *testing.T) {
+	pr, _ := generateMem(t, scaffold.DefaultOptions("workflow-status-templates"))
+	templates := []string{
+		"web/templates/partials/workflows/comments.html",
+		"web/templates/partials/workflows/labels.html",
+		"web/templates/partials/workflows/task.html",
+		"web/templates/partials/workflows/instance_detail.html",
+		"web/templates/mgr/pages/workflows.html",
+		"web/templates/mgr/pages/workflow_designer.html",
+		"web/templates/mgr/pages/workflow_groups.html",
+		"web/templates/mgr/pages/workflow_instances.html",
+		"web/templates/mgr/partials/workflows/definition_list.html",
+		"web/templates/mgr/partials/workflows/group_form.html",
+		"web/templates/mgr/partials/workflows/group_list.html",
+		"web/templates/mgr/partials/workflows/instance_list.html",
+		"web/templates/mgr/partials/workflows/versions.html",
+		"web/templates/portal/partials/workflows/task_list.html",
+	}
+	statusLiteral := regexpx.MustCompile(`"(running|completed|withdrawn|terminated|rejected|approved|pending|claimed|cancelled|queued|draft|published|disabled|enabled|approve|reject|none|started|todo|done)"`)
+	for _, rel := range templates {
+		for _, match := range statusLiteral.FindAllString(pr.read(rel), -1) {
+			t.Errorf("%s 仍包含裸状态值 %s；请改用控制器下发的常量或映射", rel, match)
+		}
+	}
+}
+
 // TestGeneratedWorkflowLifecycle proves the generated project wires the process engine end to end: definitions,
 // versions, publication, the portal start form, task approval, the designer page, groups and a valid OpenAPI
 // document. | TestGeneratedWorkflowLifecycle 证明生成项目完整接通流程引擎：定义、版本、发布、门户发起、
@@ -5624,6 +5686,22 @@ func TestGeneratedWorkflowLifecycle(t *testing.T) {
 		t.Fatalf("解析流程定义失败: %v\n%s", err, body)
 	}
 
+	// A second definition proves version operations reject a version that belongs to another
+	// definition even though the caller may manage both. | 第二个定义用于证明：即使调用方同时管理
+	// 两个定义，版本操作也会拒绝不属于 URL 父定义的版本。
+	resp, body = postJSON(t, admin, base+"/api/v1/workflows/definitions", `{
+		"key": "other", "name": "Other process", "name_en": "Other process", "category": "ops"
+	}`, auth)
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		t.Fatalf("创建第二个流程定义状态码 = %d\n%s", resp.StatusCode, body)
+	}
+	var otherDefinition struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(body), &otherDefinition); err != nil || otherDefinition.ID == "" {
+		t.Fatalf("解析第二个流程定义失败: %v\n%s", err, body)
+	}
+
 	design := `{
 		"schema_version": 1,
 		"nodes": [
@@ -5636,7 +5714,13 @@ func TestGeneratedWorkflowLifecycle(t *testing.T) {
 			{"id": "edge_1", "source": "start_1", "target": "user_1"},
 			{"id": "edge_2", "source": "user_1", "target": "end_1"}
 		],
-		"forms": {"start": [{"key": "days", "label": "Days", "type": "number", "required": true}]}
+		"forms": {
+			"start": [
+				{"key": "days", "label": "Days", "type": "number", "required": true},
+				{"key": "start_at", "label": "Start at", "type": "datetime"}
+			],
+			"user_1": [{"key": "decided_at", "label": "Decided at", "type": "datetime"}]
+		}
 	}`
 	resp, body = postJSON(t, admin, base+"/api/v1/workflows/definitions/"+definition.ID+"/versions",
 		`{"design": `+design+`, "note": "draft"}`, auth)
@@ -5652,6 +5736,34 @@ func TestGeneratedWorkflowLifecycle(t *testing.T) {
 	resp, body = postJSON(t, admin, base+"/api/v1/workflows/versions/"+version.ID+"/publish", `{"note": "release-note-xyz"}`, auth)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("发布流程版本状态码 = %d\n%s", resp.StatusCode, body)
+	}
+
+	// Version mutations carry both a definition id and a version id for the HTML surface; a
+	// version that belongs to another definition must answer 404 and stay untouched. |
+	// HTML 版本变更同时携带定义 ID 与版本 ID；属于另一个定义的版本必须返回 404 且保持不变。
+	resp, body = postJSON(t, admin, base+"/api/v1/workflows/definitions/"+definition.ID+"/versions",
+		`{"design": `+design+`, "note": "parent-check"}`, auth)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("创建父路径校验草稿状态码 = %d\n%s", resp.StatusCode, body)
+	}
+	var parentDraft struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(body), &parentDraft); err != nil || parentDraft.ID == "" {
+		t.Fatalf("解析父路径校验草稿失败: %v\n%s", err, body)
+	}
+	resp, body = postForm(t, admin, base+"/mgr/workflows/"+otherDefinition.ID+"/versions/"+parentDraft.ID+"/publish",
+		map[string]string{"note": "hijack"}, nil)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("跨定义发布版本状态码 = %d, 期望 404\n%s", resp.StatusCode, body)
+	}
+	resp, body = postForm(t, admin, base+"/mgr/workflows/"+otherDefinition.ID+"/versions/"+parentDraft.ID+"/delete", nil, nil)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("跨定义删除版本状态码 = %d, 期望 404\n%s", resp.StatusCode, body)
+	}
+	resp, body = postForm(t, admin, base+"/mgr/workflows/"+definition.ID+"/versions/"+parentDraft.ID+"/delete", nil, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("按正确父定义删除草稿状态码 = %d, 期望 200\n%s", resp.StatusCode, body)
 	}
 
 	// The version list is a lightweight summary; the design is read one version at a time. |
@@ -5685,7 +5797,7 @@ func TestGeneratedWorkflowLifecycle(t *testing.T) {
 	}
 
 	resp, body = getText(t, admin, base+"/mgr/workflows?q=Leave", map[string]string{
-		"HX-Request": "true", "HX-Target": "yd-workflow-definitions",
+		"HX-Request": "true", "HX-Target": "section#yd-workflow-definitions",
 	})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("流程列表片段状态码 = %d\n%s", resp.StatusCode, body)
@@ -5696,13 +5808,13 @@ func TestGeneratedWorkflowLifecycle(t *testing.T) {
 
 	// Category filters are shared by the HTML workbench and the JSON API. | 分类筛选在 HTML 工作台与 JSON API 之间共用。
 	resp, body = getText(t, admin, base+"/mgr/workflows?category=hr", map[string]string{
-		"HX-Request": "true", "HX-Target": "yd-workflow-definitions",
+		"HX-Request": "true", "HX-Target": "section#yd-workflow-definitions",
 	})
 	if resp.StatusCode != http.StatusOK || !strings.Contains(body, "Leave request") {
 		t.Fatalf("按分类筛选流程列表状态码 = %d\n%s", resp.StatusCode, body)
 	}
 	resp, body = getText(t, admin, base+"/mgr/workflows?category=finance", map[string]string{
-		"HX-Request": "true", "HX-Target": "yd-workflow-definitions",
+		"HX-Request": "true", "HX-Target": "section#yd-workflow-definitions",
 	})
 	if resp.StatusCode != http.StatusOK || strings.Contains(body, "Leave request") {
 		t.Fatalf("不匹配分类的流程列表状态码 = %d\n%s", resp.StatusCode, body)
@@ -5754,16 +5866,40 @@ func TestGeneratedWorkflowLifecycle(t *testing.T) {
 		t.Fatalf("发起后的实例 = %+v err=%v\n%s", instance, err, body)
 	}
 
+	// Comments are first-class: both JSON surfaces create one, and the shared drawer renders the
+	// comment plus its compose form. | 评论是一等能力：两个 JSON 入口都能创建评论，共享抽屉同时渲染
+	// 评论与撰写表单。
+	resp, body = postJSON(t, admin, base+"/api/v1/workflow-instances/"+instance.ID+"/comments",
+		`{"body": "Please approve"}`, auth)
+	if resp.StatusCode != http.StatusCreated || !strings.Contains(body, "Please approve") {
+		t.Fatalf("管理端发表评论状态码 = %d\n%s", resp.StatusCode, body)
+	}
+	resp, body = postJSON(t, admin, base+"/api/portal/v1/workflows/instances/"+instance.ID+"/comments",
+		`{"body": "Portal note"}`, auth)
+	if resp.StatusCode != http.StatusCreated || !strings.Contains(body, "Portal note") {
+		t.Fatalf("门户发表评论状态码 = %d\n%s", resp.StatusCode, body)
+	}
+	resp, body = postFormValues(t, admin, base+"/mgr/workflow-instances/"+instance.ID+"/comments",
+		url.Values{"body": {"HTML note"}}, map[string]string{"HX-Request": "true"})
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, "HTML note") {
+		t.Fatalf("HTML 评论表单状态码 = %d\n%s", resp.StatusCode, body)
+	}
+	resp, body = getText(t, admin, base+"/mgr/workflow-instances/"+instance.ID, nil)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, "Please approve") ||
+		!strings.Contains(body, "/comments") || !strings.Contains(body, `id="yd-workflow-comments"`) {
+		t.Fatalf("实例抽屉未渲染评论或评论表单: %d\n%s", resp.StatusCode, body)
+	}
+
 	// The instance category is inherited from the definition and filters both surfaces. |
 	// 实例分类继承自定义，并同时作用于两个界面。
 	resp, body = getText(t, admin, base+"/mgr/workflow-instances?category=hr", map[string]string{
-		"HX-Request": "true", "HX-Target": "yd-workflow-instances",
+		"HX-Request": "true", "HX-Target": "section#yd-workflow-instances",
 	})
 	if resp.StatusCode != http.StatusOK || !strings.Contains(body, "Two days off") {
 		t.Fatalf("按分类筛选实例列表状态码 = %d\n%s", resp.StatusCode, body)
 	}
 	resp, body = getText(t, admin, base+"/mgr/workflow-instances?category=finance", map[string]string{
-		"HX-Request": "true", "HX-Target": "yd-workflow-instances",
+		"HX-Request": "true", "HX-Target": "section#yd-workflow-instances",
 	})
 	if resp.StatusCode != http.StatusOK || strings.Contains(body, "Two days off") {
 		t.Fatalf("不匹配分类的实例列表状态码 = %d\n%s", resp.StatusCode, body)
@@ -5795,6 +5931,23 @@ func TestGeneratedWorkflowLifecycle(t *testing.T) {
 	}
 	if err := json.Unmarshal([]byte(body), &page); err != nil || len(page.Items) == 0 {
 		t.Fatalf("任务列表 = %s err=%v", body, err)
+	}
+	// Notification deep links point at /workflow/tasks/{taskID}; a browser navigation must land on
+	// the task page filtered by the instance, while htmx still receives the drawer fragment. |
+	// 通知深链指向 /workflow/tasks/{taskID}；浏览器导航必须落到按实例过滤的任务页，
+	// 而 htmx 仍拿到抽屉片段。
+	resp, body = getText(t, admin, base+"/workflow/tasks/"+page.Items[0].ID, map[string]string{"Accept": "text/html"})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("任务深链顶层导航状态码 = %d, 期望 303\n%s", resp.StatusCode, body)
+	}
+	if location := resp.Header.Get("Location"); !strings.HasPrefix(location, "/workflow/tasks?instance=") {
+		t.Fatalf("任务深链 Location = %q, 期望 /workflow/tasks?instance=...", location)
+	}
+	resp, body = getText(t, admin, base+"/workflow/tasks?instance="+instance.ID, map[string]string{
+		"HX-Request": "true", "HX-Target": "section#yd-workflow-task-list",
+	})
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, "Two days off") {
+		t.Fatalf("按实例过滤的任务列表状态码 = %d\n%s", resp.StatusCode, body)
 	}
 	resp, body = getText(t, admin, base+"/mgr/workflow-tasks/"+page.Items[0].ID, nil)
 	if resp.StatusCode != http.StatusOK {
@@ -5860,6 +6013,7 @@ func TestGeneratedWorkflowLifecycle(t *testing.T) {
 	// The HTML start form and the HTML approval action share the same service. | HTML 发起表单与审批动作共用同一份服务。
 	resp, body = postForm(t, admin, base+"/workflow/start", map[string]string{
 		"definition": "leave", "title": "HTML instance", "field_days": "3",
+		"field_start_at": "2026-01-02T15:04",
 	}, nil)
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusSeeOther {
 		t.Fatalf("HTML 发起流程状态码 = %d\n%s", resp.StatusCode, body)
@@ -5878,6 +6032,7 @@ func TestGeneratedWorkflowLifecycle(t *testing.T) {
 	}
 	resp, body = postForm(t, admin, base+"/workflow/tasks/"+page.Items[0].ID+"/action", map[string]string{
 		"decision": "approve", "comment": "ok", "field_days": "3",
+		"field_decided_at": "2026-01-02T15:04:05",
 	}, nil)
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusSeeOther {
 		t.Fatalf("HTML 审批状态码 = %d\n%s", resp.StatusCode, body)

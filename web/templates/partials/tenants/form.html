@@ -50,8 +50,8 @@
       "ID" "yd-tenant-status" "Name" "status"
       "LabelKey" "tenants.field.status" "Label" (tr "tenants.field.status")
       "Options" (list
-          (dict "Value" "active" "Key" "tenants.status.active" "Label" (tr "tenants.status.active") "Selected" true)
-          (dict "Value" "disabled" "Key" "tenants.status.disabled" "Label" (tr "tenants.status.disabled"))))}}
+          (dict "Value" .Values.StatusActive "Key" "tenants.status.active" "Label" (tr "tenants.status.active") "Selected" true)
+          (dict "Value" .Values.StatusDisabled "Key" "tenants.status.disabled" "Label" (tr "tenants.status.disabled"))))}}
 
   {{template "partials/form.actions" (dict "SubmitKey" "action.save" "Submit" (tr "action.save"))}}
 </form>

@@ -72,3 +72,40 @@ type Store interface {
 	// DeleteRole removes the role of that tenant, or returns ErrNotFound. | DeleteRole 删除该租户下的角色，不存在时返回 ErrNotFound。
 	DeleteRole(ctx context.Context, tenantID, roleID string) error
 }
+
+// TenantMembership is one desired user-tenant membership handed to TenantReplacer. | TenantMembership 是交给
+// TenantReplacer 的一条期望用户-租户成员关系。
+type TenantMembership struct {
+	// TenantID is the tenant the user should belong to. | TenantID 是用户应当隶属的租户。
+	TenantID string
+	// Roles is the role set inside that tenant. A nil value keeps the stored roles of an existing membership, so a
+	// caller that only rearranges tenants never has to reload every role list; a new membership with nil roles is
+	// created without roles. | Roles 是该租户内的角色集合。取值为 nil 时保留已存在成员关系的库中角色，因此只调整
+	// 租户的调用方无需逐个重新载入角色清单；新成员关系配 nil 角色即不授予任何角色。
+	Roles []string
+}
+
+// TenantReplacer is the optional Store capability that rewrites a user's whole membership set in one atomic step.
+// | TenantReplacer 是 Store 的可选能力：一步原子地重写某个用户的全部成员关系。
+//
+// The sequential AddUserTenant / RemoveUserTenant / SetDefaultTenant trio is not atomic: a failure halfway through
+// leaves a partially adjusted membership set behind. A Store that implements this interface lets callers replace the
+// whole set under one lock or one transaction, and the replacement must validate every target tenant, every role and
+// the default tenant before writing anything. | 顺序版本 AddUserTenant / RemoveUserTenant / SetDefaultTenant 并不原子：
+// 中途失败会留下改到一半的成员关系。实现本接口的 Store 让调用方在同一把锁或同一个事务里替换整个集合，替换必须
+// 在写入之前完成全部目标租户、角色与默认租户的校验。
+//
+// Implementation contract | 实现契约：
+//
+//   - the user's home tenant (User.TenantID) must be present in memberships, otherwise ErrConflict;
+//   - defaultTenantID must name one of memberships, otherwise ErrInvalidInput;
+//   - every membership tenant and every non-nil role name must exist, otherwise ErrNotFound;
+//   - nothing may be written when any validation fails.
+//
+// 用户的身份租户必须留在成员集合内，否则返回 ErrConflict；defaultTenantID 必须是成员之一，否则返回
+// ErrInvalidInput；每个成员租户与每个非 nil 角色名都必须存在，否则返回 ErrNotFound；任一校验失败都不得写入任何数据。
+type TenantReplacer interface {
+	// ReplaceUserTenants atomically replaces the memberships of userID and its default tenant. | ReplaceUserTenants
+	// 原子地替换 userID 的成员关系及其默认租户。
+	ReplaceUserTenants(ctx context.Context, userID string, memberships []TenantMembership, defaultTenantID string) error
+}

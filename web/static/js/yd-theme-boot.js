@@ -44,7 +44,14 @@
   // CHOICES is the three-state whitelist; "auto" is the generated projects' spelling of "system"
   // and is kept so an older stored preference keeps working. | CHOICES 是三态白名单；
   // "auto" 是生成项目对 "system" 的写法，保留它是为了让旧偏好继续生效。
-  var CHOICES = { light: true, dark: true, system: true, auto: true };
+  // THEMES names the four accepted spellings; the literals appear only here. |
+  // THEMES 命名四种可接受写法，字面量只在这里出现。
+  var THEMES = {LIGHT: 'light', DARK: 'dark', SYSTEM: 'system', AUTO: 'auto'};
+  var CHOICES = {};
+  CHOICES[THEMES.LIGHT] = true;
+  CHOICES[THEMES.DARK] = true;
+  CHOICES[THEMES.SYSTEM] = true;
+  CHOICES[THEMES.AUTO] = true;
 
   // env returns the global object, which keeps the file testable outside a browser.
   // env 返回全局对象，使本文件在浏览器之外也可测试。
@@ -104,12 +111,12 @@
   function systemResolved() {
     var matchMedia = env().matchMedia;
     if (typeof matchMedia !== 'function') {
-      return 'light';
+      return THEMES.LIGHT;
     }
     try {
-      return matchMedia(DARK_QUERY).matches ? 'dark' : 'light';
+      return matchMedia(DARK_QUERY).matches ? THEMES.DARK : THEMES.LIGHT;
     } catch (err) {
-      return 'light';
+      return THEMES.LIGHT;
     }
   }
 
@@ -126,8 +133,8 @@
   // resolve turns a three-state choice into the concrete theme actually painted.
   // resolve 把三态偏好解析为实际绘制的具体主题。
   function resolve(value) {
-    var picked = choice(value) || 'system';
-    return picked === 'system' || picked === 'auto' ? systemResolved() : picked;
+    var picked = choice(value) || THEMES.SYSTEM;
+    return picked === THEMES.SYSTEM || picked === THEMES.AUTO ? systemResolved() : picked;
   }
 
   // apply writes the resolved theme onto <html>; it returns the resolved value.
@@ -137,7 +144,7 @@
     var d = doc();
     if (d && d.documentElement && typeof d.documentElement.setAttribute === 'function') {
       d.documentElement.setAttribute('data-theme', resolved);
-      d.documentElement.setAttribute('data-yd-theme-choice', choice(value) || 'system');
+      d.documentElement.setAttribute('data-yd-theme-choice', choice(value) || THEMES.SYSTEM);
     }
     return resolved;
   }
@@ -150,7 +157,7 @@
       apply(remembered);
     } else {
       var rendered = serverChoice();
-      apply(rendered || 'system');
+      apply(rendered || THEMES.SYSTEM);
     }
     applySidebar();
   }

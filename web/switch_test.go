@@ -242,7 +242,11 @@ func TestThemeSwitchHasThreeStatesAndNoFlash(t *testing.T) {
 	//    三种状态、一份白名单，由首屏脚本与外壳共用：light、dark 与 system，
 	//    其中只有 "system" 需要浏览器来决定。
 	for _, want := range []string{
-		"var CHOICES = { light: true, dark: true, system: true, auto: true };",
+		"var THEMES = {LIGHT: 'light', DARK: 'dark', SYSTEM: 'system', AUTO: 'auto'};",
+		"CHOICES[THEMES.LIGHT] = true;",
+		"CHOICES[THEMES.DARK] = true;",
+		"CHOICES[THEMES.SYSTEM] = true;",
+		"CHOICES[THEMES.AUTO] = true;",
 		"var THEME_KEY = 'yd_theme';",
 		"var DARK_QUERY = '(prefers-color-scheme: dark)';",
 		"store.getItem(THEME_KEY)",
@@ -254,7 +258,10 @@ func TestThemeSwitchHasThreeStatesAndNoFlash(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"var VALID_THEMES = { light: true, dark: true, system: true };",
+		"var THEMES = {LIGHT: 'light', DARK: 'dark', SYSTEM: 'system'};",
+		"VALID_THEMES[THEMES.LIGHT] = true;",
+		"VALID_THEMES[THEMES.DARK] = true;",
+		"VALID_THEMES[THEMES.SYSTEM] = true;",
 		"function applyTheme(theme, persist) {",
 		"write(THEME_KEY, choice);",
 		"writeCookie(THEME_KEY, choice);",

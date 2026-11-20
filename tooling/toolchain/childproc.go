@@ -19,6 +19,10 @@ import (
 // childGracePeriod is how long a child may take to exit before it is killed, and how long a forced kill may take to be reaped. | childGracePeriod 是子进程被强杀前允许的退出时间，也是强杀后被收尸的等待上限。
 const childGracePeriod = 3 * time.Second
 
+// watchdogTimeout bounds one external process-control or liveness command (tasklist, taskkill).
+// | watchdogTimeout 限制单次外部进程控制或存活探测命令（tasklist、taskkill）的耗时。
+const watchdogTimeout = 3 * time.Second
+
 // ProcessProbe reports whether the operating system still sees a process. | ProcessProbe 报告操作系统是否仍能看到某个进程。
 type ProcessProbe func(pid int) bool
 
@@ -37,7 +41,11 @@ func defaultProcessAlive(pid int) bool {
 		return false
 	}
 	name, args := probeCommand(pid)
-	out, err := newCommand(context.Background(), name, args...).Output()
+	// tasklist/kill are external commands; a stuck probe must not hang a shutdown or a leak guard.
+	// | tasklist/kill 是外部命令；探测卡住不能拖住关闭流程或泄漏守卫。
+	ctx, cancel := context.WithTimeout(context.Background(), watchdogTimeout)
+	defer cancel()
+	out, err := newCommand(ctx, name, args...).Output()
 	if runtime.GOOS == "windows" {
 		if err != nil {
 			return true
@@ -80,6 +88,13 @@ func (r *DevRunner) startChild(ctx context.Context, bin string) error {
 	cmd.Stdout = r.out
 	cmd.Stderr = r.out
 	cmd.Env = childEnv(cmd, r.opts.Port, r.opts.HTTP2ExtendedConnect)
+	// A descendant that escapes the tree can keep the inherited stdout/stderr pipe open after the
+	// direct child exits. Without WaitDelay, cmd.Wait would block forever on its copy goroutines and
+	// Run could never return; the bounded delay turns that into an observed exit instead of a leak. |
+	// 逃出进程树的后代可能在直接子进程退出后仍持有继承的 stdout/stderr 管道。没有 WaitDelay 时，
+	// cmd.Wait 会永远阻塞在拷贝协程上，Run 无法返回；有界延迟把这种情况变成一次可观测的退出，
+	// 而不是一次泄漏。
+	cmd.WaitDelay = childGracePeriod
 	prepareChildTree(cmd)
 
 	proc := &childProc{cmd: cmd, done: make(chan struct{}), ready: make(chan struct{})}

@@ -78,13 +78,29 @@ func (c *Controller) CreateUser(ctx *router.Ctx) {
 		return
 	}
 
+	requested := formValues(ctx, FieldRoles)
+	granted, err := c.tenantRolePermissions(ctx, tenantID, requested)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	// The anti-escalation gate: an administrator may only hand out roles whose capabilities it already holds, so a
+	// user administrator cannot mint an owner (or any other role richer than itself) and then sign in through it. |
+	// 防越权闸门：管理员只能分发权限集合已被自己持有的角色，因此用户管理员无法造出一个所有者（或任何比自己更强的
+	// 角色）再借它登录。
+	if !c.actorHoldsAll(ctx, granted) {
+		c.failService(ctx, auth.ErrForbidden)
+		return
+	}
+
 	created, err := c.users.Create(ctx.Request.Context(), tenantID, service.CreateUserInput{
 		Username:    field(ctx, FieldUsername),
 		Email:       field(ctx, FieldEmail),
 		DisplayName: field(ctx, FieldDisplayName),
 		Password:    payload(ctx, FieldPassword),
 		Scheme:      scheme(ctx),
-		Roles:       formValues(ctx, FieldRoles),
+		Roles:       requested,
+		Grantable:   c.actorPermissions(ctx),
 	})
 	if err != nil {
 		c.failService(ctx, err)
@@ -175,6 +191,20 @@ func (c *Controller) SetUserRoles(ctx *router.Ctx) {
 	userID := ctx.Param("id")
 	roles := formValues(ctx, FieldRoles)
 	if !c.canManageUser(ctx, tenantID, userID) {
+		c.failService(ctx, auth.ErrForbidden)
+		return
+	}
+	target, err := c.users.Get(ctx.Request.Context(), tenantID, userID)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	// A non-owner must neither rewrite the assignment of an elevated built-in role nor hand one out, even when the
+	// current permission comparison would allow it (for example after the role's stored grants have been narrowed). |
+	// 即使当前的权限比较放行（例如角色在库中的授权已被收窄），非 owner 也不得改写 owner 或 admin 这类内置角色的
+	// 分配，也不得把它们授予任何人。
+	if (hasElevatedBuiltinRole(target.Roles) || hasElevatedBuiltinRole(roles)) &&
+		!authz.HasRole(ctx.Request.Context(), authz.RoleOwner) {
 		c.failService(ctx, auth.ErrForbidden)
 		return
 	}
@@ -375,8 +405,19 @@ func (c *Controller) NewUserForm(ctx *router.Ctx) {
 		c.failService(ctx, err)
 		return
 	}
+	// Offer only the roles this administrator could actually grant. Listing an owner checkbox it is not allowed to
+	// submit would turn every attempt into a 403; hiding it keeps the form honest without moving the real boundary
+	// out of the handler. | 只下发这个管理员确实可授予的角色。渲染一个提交必然被 403 的 owner 勾选项只会制造
+	// 挫败感；隐藏它让表单与服务端规则一致，同时真正的边界仍然留在处理器里。
+	grantable := c.actorPermissions(ctx)
+	available := make([]model.Role, 0, len(roles))
+	for _, role := range roles {
+		if canGrantRole(grantable, role) {
+			available = append(available, role)
+		}
+	}
 	c.render(ctx, http.StatusOK, TplUserCreateDrawer, c.pageView(ctx, "新建用户 | Create user", map[string]any{
-		"RoleList":    roles,
+		"RoleList":    available,
 		"KeyEndpoint": PubkeyPath,
 	}))
 }
@@ -471,8 +512,56 @@ func (c *Controller) SetUserTenants(ctx *router.Ctx) {
 		c.failService(ctx, auth.ErrForbidden)
 		return
 	}
-	if err := c.users.SetTenants(ctx.Request.Context(), tenantID, userID,
-		formValues(ctx, FieldTenants), field(ctx, FieldDefaultTenant)); err != nil {
+	requested := formValues(ctx, FieldTenants)
+	defaultTenantID := field(ctx, FieldDefaultTenant)
+	if defaultTenantID == "" && len(requested) > 0 {
+		defaultTenantID = requested[0]
+	}
+	requestedSet := make(map[string]struct{}, len(requested))
+	for _, id := range requested {
+		requestedSet[id] = struct{}{}
+	}
+	if len(requestedSet) > 0 {
+		if _, ok := requestedSet[defaultTenantID]; ok {
+			current, err := c.users.Tenants(ctx.Request.Context(), userID)
+			if err != nil {
+				c.failService(ctx, err)
+				return
+			}
+			currentSet := make(map[string]struct{}, len(current))
+			for _, tenant := range current {
+				currentSet[tenant.ID] = struct{}{}
+			}
+			// Every added tenant, every removed tenant and the new default tenant must be administered by the actor
+			// itself. Without this an administrator of tenant A could graft an unrelated user into tenant B (or cut
+			// one out of it) merely because the user happens to be visible from A. No probe may write anything. |
+			// 新增的每个租户、移除的每个租户与新默认租户都必须由操作者本人管理。没有这一步，A 租户的管理员仅凭
+			// 「用户从 A 可见」就能把无关用户塞进 B（或从 B 移除）。任一探针失败都不得写入任何数据。
+			for id := range requestedSet {
+				if _, exists := currentSet[id]; exists {
+					continue
+				}
+				if !c.actorManagesTenant(ctx, id) {
+					c.failService(ctx, auth.ErrForbidden)
+					return
+				}
+			}
+			for _, tenant := range current {
+				if _, keep := requestedSet[tenant.ID]; keep {
+					continue
+				}
+				if !c.actorManagesTenant(ctx, tenant.ID) {
+					c.failService(ctx, auth.ErrForbidden)
+					return
+				}
+			}
+			if !c.actorManagesTenant(ctx, defaultTenantID) {
+				c.failService(ctx, auth.ErrForbidden)
+				return
+			}
+		}
+	}
+	if err := c.users.SetTenants(ctx.Request.Context(), tenantID, userID, requested, defaultTenantID); err != nil {
 		c.failService(ctx, err)
 		return
 	}
@@ -481,6 +570,65 @@ func (c *Controller) SetUserTenants(ctx *router.Ctx) {
 		log.Str("user", userID),
 	)
 	c.usersPage(ctx, http.StatusOK, "", "成员租户已更新 | memberships updated")
+}
+
+// tenantRolePermissions resolves the named roles of one tenant and returns the union of their capabilities. | tenantRolePermissions
+// 解析某个租户内的命名角色并返回其能力并集。
+//
+// Unknown names are skipped here on purpose: the service refuses them with a 422, and the anti-escalation gate only
+// judges roles the tenant actually holds. | 未知名字在这里被刻意跳过：服务层会以 422 拒绝它们，而防越权闸门只判定
+// 租户确实持有的角色。
+func (c *Controller) tenantRolePermissions(ctx *router.Ctx, tenantID string, names []string) ([]model.Permission, error) {
+	catalogue, err := c.roles.List(ctx.Request.Context(), tenantID)
+	if err != nil {
+		return nil, err
+	}
+	byName := make(map[string]model.Role, len(catalogue))
+	for _, role := range catalogue {
+		byName[strings.ToLower(role.Name)] = role
+	}
+	seen := make(map[model.Permission]struct{})
+	out := make([]model.Permission, 0, len(names))
+	for _, name := range names {
+		role, ok := byName[strings.ToLower(strings.TrimSpace(name))]
+		if !ok {
+			continue
+		}
+		for _, permission := range role.Permissions {
+			if _, dup := seen[permission]; dup {
+				continue
+			}
+			seen[permission] = struct{}{}
+			out = append(out, permission)
+		}
+	}
+	return out, nil
+}
+
+// canGrantRole reports whether every capability of the role is held by the actor. | canGrantRole 报告角色授予的每项能力是否都被操作者持有。
+func canGrantRole(grantable map[model.Permission]struct{}, role model.Role) bool {
+	for _, permission := range role.Permissions {
+		if _, ok := grantable[permission]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// hasElevatedBuiltinRole reports whether the role names include the owner or admin built-in role. | hasElevatedBuiltinRole
+// 报告角色名集合是否包含 owner 或 admin 这类内置角色。
+//
+// The lower built-in roles (member, auditor) are deliberately not protected here: they carry no tenant-wide
+// administration and an ordinary user administrator must keep managing them. | 这里刻意不保护较低的内置角色
+// （member、auditor）：它们没有任何租户级管理能力，普通用户管理员必须仍能管理它们。
+func hasElevatedBuiltinRole(names []string) bool {
+	for _, name := range names {
+		trimmed := strings.TrimSpace(name)
+		if strings.EqualFold(trimmed, authz.RoleOwner) || strings.EqualFold(trimmed, authz.RoleAdmin) {
+			return true
+		}
+	}
+	return false
 }
 
 // userCard 把一行用户与它的角色勾选状态绑在一起。

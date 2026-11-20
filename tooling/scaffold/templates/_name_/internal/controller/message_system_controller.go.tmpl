@@ -45,7 +45,9 @@ func (c *Controller) NewSystemDrawer(ctx *router.Ctx) {
 		return
 	}
 	c.render(ctx, http.StatusOK, TplMessageCompose, c.pageView(ctx, "系统公告 | Announcement", map[string]any{
-		"Mode":        "system",
+		"Mode":        formModeSystem,
+		"IsEdit":        false,
+		"IsSystem": true,
 		"Catalog":     catalog,
 		"DefaultType": messaging.TypeAnnouncement,
 		"Message":     messageView{},

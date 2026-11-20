@@ -10,10 +10,12 @@ package service
 
 import (
 	"context"
+	"strings"
 
 	"{{ .Module }}/internal/model"
 	"{{ .Module }}/internal/repository"
 	"{{ .YdModule }}/security/auth"
+	"{{ .YdxModule }}/config"
 	"{{ .YdxModule }}/errs"
 	"github.com/shibingli/ydx/guomi"
 	ydlog "{{ .YdxModule }}/log"
@@ -78,15 +80,18 @@ type AuthService struct {
 	log *ydlog.Logger
 }
 
-// NewAuthService 装配鉴权服务：进程启动时生成一对 SM2 密钥。
-// NewAuthService assembles the auth service and generates one SM2 key pair at process start.
+// NewAuthService assembles the auth service. auth.sm2_private_key is used when configured; otherwise
+// one per-process SM2 key pair is generated so a single instance works out of the box. |
+// NewAuthService 装配鉴权服务。配置了 auth.sm2_private_key 时使用它；否则生成一对进程内 SM2 密钥，
+// 使单实例开箱即用。
 //
-// 密钥对随进程生命周期：浏览器每次打开登录页都会重新取公钥，因此重启不会让任何客户端卡住；
-// 需要跨重启稳定的部署请把私钥放进 KMS 或配置，并在 NewAuthService 里换成从密钥源构造。
-// The key pair lives as long as the process: the browser refetches the public key whenever it opens the sign-in page,
-// so a restart never wedges a client; a deployment that needs a stable key loads it from a KMS or the configuration and
-// builds it here instead.
-func NewAuthService(store *repository.Store, log *ydlog.Logger) (*AuthService, error) {
+// A generated key pair lives as long as the process: the browser refetches the public key whenever it
+// opens the sign-in page, so a restart never wedges a client. A multi-replica deployment without a
+// shared key would let a sign-in land on a replica that cannot decrypt the payload, which is why
+// auth.sm2_private_key exists. | 生成的密钥对随进程生命周期：浏览器每次打开登录页都会重新取公钥，
+// 因此重启不会让任何客户端卡住。多副本部署如果没有共享密钥，登录可能落到无法解密载荷的副本上，
+// auth.sm2_private_key 正是为此存在。
+func NewAuthService(store *repository.Store, log *ydlog.Logger, cfg *config.Config) (*AuthService, error) {
 	if store == nil || store.Auth() == nil || store.Issuer() == nil {
 		return nil, ErrAuthUnavailable
 	}
@@ -94,9 +99,22 @@ func NewAuthService(store *repository.Store, log *ydlog.Logger) (*AuthService, e
 		log = ydlog.Default()
 	}
 
-	priv, err := guomi.GenerateKey()
-	if err != nil {
-		return nil, errs.Wrap(err, ErrCipherKeyMissing)
+	var priv *guomi.PrivateKey
+	if cfg != nil {
+		if keyHex := strings.TrimSpace(cfg.GetString("auth.sm2_private_key")); keyHex != "" {
+			parsed, err := guomi.PrivateKeyFromHex(keyHex)
+			if err != nil {
+				return nil, errs.Wrap(err, ErrCipherKeyMissing)
+			}
+			priv = parsed
+		}
+	}
+	if priv == nil {
+		generated, err := guomi.GenerateKey()
+		if err != nil {
+			return nil, errs.Wrap(err, ErrCipherKeyMissing)
+		}
+		priv = generated
 	}
 	return &AuthService{store: store, users: repository.NewUserRepo(store), priv: priv, pub: priv.Public().Hex(), log: log}, nil
 }

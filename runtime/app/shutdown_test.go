@@ -283,3 +283,21 @@ func waitForStopped(t *testing.T, flag *atomic.Bool, message string) {
 		time.Sleep(time.Millisecond)
 	}
 }
+
+// TestShutdownHookPanicIsContained keeps a panicking hook from aborting the remaining hooks or
+// the process: the panic is reported through ErrHookPanic and ErrShutdown, and every other hook
+// still runs. | TestShutdownHookPanicIsContained 保证发生 panic 的钩子不会中止后续钩子或进程：
+// panic 经 ErrHookPanic 与 ErrShutdown 上报，其余钩子仍会执行。
+func TestShutdownHookPanicIsContained(t *testing.T) {
+	a := newTestApp(t, nil)
+	ran := false
+	a.OnShutdown(func(context.Context) error { ran = true; return nil })
+	a.OnShutdown(func(context.Context) error { panic("boom") })
+	err := a.Shutdown(context.Background())
+	if err == nil || !errors.Is(err, ErrHookPanic) || !errors.Is(err, ErrShutdown) {
+		t.Fatalf("Shutdown 错误 = %v，期望同时包含 ErrHookPanic 与 ErrShutdown | Shutdown error = %v, want ErrHookPanic and ErrShutdown", err, err)
+	}
+	if !ran {
+		t.Error("panic 之后的钩子没有执行 | a hook after the panic did not run")
+	}
+}

@@ -6,11 +6,12 @@ package controller
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 
+	"{{ .YdModule }}/messaging"
 	"{{ .YdxModule }}/log"
 	"{{ .YdxModule }}/router"
-	"{{ .YdModule }}/messaging"
 )
 
 // relationKeys maps a relation token to its catalogue key. The literals live here rather than being
@@ -135,11 +136,41 @@ func (c *Controller) friendPageData(ctx *router.Ctx, summary messaging.FriendSum
 		name := profile.Display()
 		blocked = append(blocked, blockedRow{Profile: profile, Name: name, Initial: initialOf(name)})
 	}
+	all := friendViewsOf(summary.Friends)
+	page := pageNumber(ctx)
+	const pageSize = 50
+	pageCount := (len(all) + pageSize - 1) / pageSize
+	if pageCount < 1 {
+		pageCount = 1
+	}
+	if page > pageCount {
+		page = pageCount
+	}
+	start := (page - 1) * pageSize
+	if start > len(all) {
+		start = len(all)
+	}
+	end := start + pageSize
+	if end > len(all) {
+		end = len(all)
+	}
+	prevHref, nextHref := "", ""
+	if page > 1 {
+		prevHref = "/friends?page=" + strconv.Itoa(page-1)
+	}
+	if page < pageCount {
+		nextHref = "/friends?page=" + strconv.Itoa(page+1)
+	}
 	return c.pageView(ctx, "好友 | Friends", map[string]any{
-		"Friends":  friendViewsOf(summary.Friends),
-		"Incoming": incoming,
-		"Outgoing": outgoing,
-		"Blocked":  blocked,
+		"Friends":         all[start:end],
+		"FriendTotal":     len(all),
+		"FriendPage":      page,
+		"FriendPageCount": pageCount,
+		"FriendPrevHref":  prevHref,
+		"FriendNextHref":  nextHref,
+		"Incoming":        incoming,
+		"Outgoing":        outgoing,
+		"Blocked":         blocked,
 	})
 }
 
@@ -180,8 +211,10 @@ func (c *Controller) FriendSearch(ctx *router.Ctx) {
 		})
 	}
 	data := c.pageView(ctx, "好友检索 | Friend search", map[string]any{
-		"Candidates": views,
-		"Query":      query,
+		"Candidates":     views,
+		"Query":          query,
+		"RelationSelf":   messaging.RelationSelf,
+		"RelationFriend": messaging.RelationFriend,
 	})
 	c.render(ctx, http.StatusOK, TplFriendSearch, data)
 }
@@ -233,12 +266,14 @@ func (c *Controller) NewFriendRequestDrawer(ctx *router.Ctx) {
 	}
 	name := profile.Display()
 	c.render(ctx, http.StatusOK, TplFriendRequestDrawer, c.pageView(ctx, "添加好友 | Add friend", map[string]any{
-		"Target":        profile,
-		"Name":          name,
-		"Initial":       initialOf(name),
-		"CanRequest":    relation == messaging.RelationNone,
-		"Relation":      relation,
-		"RelationLabel": c.tr(c.lang(ctx), labelKey),
+		"Target":         profile,
+		"Name":           name,
+		"Initial":        initialOf(name),
+		"CanRequest":     relation == messaging.RelationNone,
+		"Relation":       relation,
+		"RelationLabel":  c.tr(c.lang(ctx), labelKey),
+		"RelationSelf":   messaging.RelationSelf,
+		"RelationFriend": messaging.RelationFriend,
 	}))
 }
 

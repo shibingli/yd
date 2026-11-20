@@ -112,7 +112,7 @@
 <section class="yd-drawer__section" aria-labelledby="yd-drawer-password">
   <h3 class="yd-section__title" id="yd-drawer-password">{{ tr "ui.reset_password" }}</h3>
   <form class="yd-form" method="post" action="/mgr/users/{{ $target.ID }}/password"
-        data-yd-encrypt="sm2" data-yd-pubkey="{{ .KeyEndpoint }}"
+        data-yd-encrypt="{{ .EncryptScheme }}" data-yd-pubkey="{{ .KeyEndpoint }}"
         hx-post="/mgr/users/{{ $target.ID }}/password" hx-target="#yd-workspace" hx-swap="innerMorph"
         hx-status:400="target:#yd-drawer-errors swap:innerHTML"
         hx-status:422="target:#yd-drawer-errors swap:innerHTML"

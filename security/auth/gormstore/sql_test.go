@@ -152,15 +152,15 @@ func TestUniqueIndexesEnforceGlobalIdentityAndMembership(t *testing.T) {
 	store, db, _ := capturedStore(t)
 	seedTwoTenants(t, ctx, store)
 
-	row := userRow{ID: "us_dup", TenantID: "tn_b", DefaultTenantID: "tn_b", Username: "DupUser", UsernameKey: keyOf("DupUser"), Status: string(auth.StatusActive)}
+	row := userRow{ID: "us_dup", TenantID: "tn_b", DefaultTenantID: "tn_b", Username: "DupUser", UsernameKey: keyOf("DupUser"), Status: auth.StatusActive}
 	if err := db.Create(&row).Error; err != nil {
 		t.Fatalf("insert of the first global user failed: %[1]v | 插入首个全局用户失败：%[1]v", err)
 	}
-	sameID := userRow{ID: "us_dup", TenantID: "tn_a", DefaultTenantID: "tn_a", Username: "Bob", UsernameKey: keyOf("Bob"), Status: string(auth.StatusActive)}
+	sameID := userRow{ID: "us_dup", TenantID: "tn_a", DefaultTenantID: "tn_a", Username: "Bob", UsernameKey: keyOf("Bob"), Status: auth.StatusActive}
 	if err := db.Create(&sameID).Error; !isDuplicate(err) {
 		t.Fatalf("duplicate user id = %[1]v, want a unique violation | 重复的用户 ID = %[1]v，期望唯一约束冲突", err)
 	}
-	sameName := userRow{ID: "us_other", TenantID: "tn_a", DefaultTenantID: "tn_a", Username: "dupuser", UsernameKey: keyOf("dupuser"), Status: string(auth.StatusActive)}
+	sameName := userRow{ID: "us_other", TenantID: "tn_a", DefaultTenantID: "tn_a", Username: "dupuser", UsernameKey: keyOf("dupuser"), Status: auth.StatusActive}
 	if err := db.Create(&sameName).Error; !isDuplicate(err) {
 		t.Fatalf("duplicate global username_key = %[1]v, want a unique violation | 重复的全局 username_key = %[1]v，期望唯一约束冲突", err)
 	}

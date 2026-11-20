@@ -4,7 +4,40 @@
 package controller
 
 import (
+	"time"
 	"{{ .YdxModule }}/workflow"
+)
+
+// Workflow action words accepted by the task endpoints. The URL word, the JSON API switch and the
+// HTML dispatcher all reference these constants, so a rename cannot leave one endpoint behind. |
+// 任务端点接受的流程动作词。URL 词、JSON API 分支与 HTML 分派器都引用这些常量，
+// 改名时不会漏掉某个端点。
+const (
+	workflowActionDecide     = "action"
+	workflowActionApprove    = "approve"
+	workflowActionReject     = "reject"
+	workflowActionClaim      = "claim"
+	workflowActionTransfer   = "transfer"
+	workflowActionDelegate   = "delegate"
+	workflowActionAddSign    = "add-sign"
+	workflowActionRemoveSign = "remove-sign"
+	workflowActionReturn     = "return"
+	workflowActionRemind     = "remind"
+)
+
+// Workflow list tabs, export formats and form field types. | 流程列表页签、导出格式与表单字段类型。
+const (
+	workflowTabTodo       = "todo"
+	workflowTabStarted    = "started"
+	workflowTabDone       = "done"
+	workflowFormatBPMN    = "bpmn"
+	workflowFieldText     = "text"
+	workflowFieldTextarea = "textarea"
+	workflowFieldNumber   = "number"
+	workflowFieldDate     = "date"
+	workflowFieldDateTime = "datetime"
+	workflowFieldSelect   = "select"
+	workflowFieldCheckbox = "checkbox"
 )
 
 // workflowDefinitionRequest is the create/update payload of a definition. | workflowDefinitionRequest
@@ -38,6 +71,35 @@ type workflowVersionRequest struct {
 
 // workflowPublishRequest is the publish payload. | workflowPublishRequest 是发布载荷。
 // @Name workflowPublishRequest
+// workflowCommentDoc documents one instance comment in the OpenAPI schema. | workflowCommentDoc
+// 在 OpenAPI Schema 中记录一条实例评论。
+// @Name workflowCommentDoc
+type workflowCommentDoc struct {
+	// ID is the comment id. | ID 是评论 ID。
+	ID string `json:"id"`
+	// InstanceID is the owning instance. | InstanceID 是所属实例。
+	InstanceID string `json:"instance_id"`
+	// TaskID is the related task, when any. | TaskID 是相关任务（如有）。
+	TaskID string `json:"task_id,omitempty"`
+	// AuthorID and AuthorName identify the author. | AuthorID 与 AuthorName 标识作者。
+	AuthorID   string `json:"author_id"`
+	AuthorName string `json:"author_name,omitempty"`
+	// Kind is comment or system. | Kind 取 comment 或 system。
+	Kind string `json:"kind"`
+	// Body is the comment text. | Body 是评论正文。
+	Body string `json:"body"`
+	// CreatedAt is the UTC creation instant. | CreatedAt 是 UTC 创建时刻。
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// workflowCommentRequest is the free-form instance comment payload. | workflowCommentRequest
+// 是实例自由评论载荷。
+// @Name workflowCommentRequest
+type workflowCommentRequest struct {
+	// Body is the comment text. | Body 是评论正文。
+	Body string `json:"body"`
+}
+
 type workflowPublishRequest struct {
 	// Note is the publication note. | Note 是发布说明。
 	Note string `json:"note"`
@@ -80,7 +142,9 @@ type workflowStartRequest struct {
 	Title string `json:"title"`
 	// BusinessKey is the external reference. | BusinessKey 是外部业务键。
 	BusinessKey string `json:"business_key"`
-	// Category overrides the definition category. | Category 覆盖定义分类。
+	// Category is deprecated and ignored; the instance always copies the definition category so
+	// automatic-approval rules cannot be steered by a forged value. | Category 已弃用并被忽略；
+	// 实例始终复制定义分类，自动审批规则无法被伪造值左右。
 	Category string `json:"category"`
 	// Variables are instance variables. | Variables 是实例变量。
 	Variables map[string]any `json:"variables"`
@@ -88,17 +152,31 @@ type workflowStartRequest struct {
 	FormData map[string]any `json:"form_data"`
 }
 
-// workflowActionRequest is one approve or reject call. | workflowActionRequest 是一次通过或驳回调用。
+// workflowActionRequest is one task-action call. When the URL ends in the generic `action` word,
+// Action (or Decision) selects the concrete action and the remaining fields carry that action's
+// payload, so one documented body shape covers the whole dispatcher. | workflowActionRequest
+// 是一次任务动作调用。URL 以通用动作词 `action` 结尾时，由 Action（或 Decision）选择具体动作，
+// 其余字段承载该动作的载荷，因此文档中的同一种请求体覆盖整个分派器。
 // @Name workflowActionRequest
 type workflowActionRequest struct {
-	// Action is approve or reject; empty falls back to Decision. | Action 取 approve 或 reject；空值回退到 Decision。
+	// Action is the concrete action word; empty falls back to Decision. | Action 是具体动作词；空值回退到 Decision。
 	Action string `json:"action"`
 	// Decision is approve or reject. | Decision 取 approve 或 reject。
 	Decision string `json:"decision"`
-	// Comment is the approval note. | Comment 是审批意见。
+	// Comment is the approval note or action reason. | Comment 是审批意见或动作原因。
 	Comment string `json:"comment"`
 	// FormData is the node form submission. | FormData 是节点表单提交。
 	FormData map[string]any `json:"form_data"`
+	// TargetID is the transfer or delegation target. | TargetID 是转办或委派目标。
+	TargetID string `json:"target_id"`
+	// UserIDs are the approvers added by add-sign. | UserIDs 是加签新增的审批人。
+	UserIDs []string `json:"user_ids"`
+	// Position is before or after for add-sign. | Position 取加签位置 before 或 after。
+	Position string `json:"position"`
+	// TaskID is the queued task removed by remove-sign. | TaskID 是减签要移除的排队任务。
+	TaskID string `json:"task_id"`
+	// TargetNodeID is the return target node. | TargetNodeID 是退回目标节点。
+	TargetNodeID string `json:"target_node_id"`
 }
 
 // workflowReassignRequest is one transfer or delegation call. | workflowReassignRequest 是一次转办或委派调用。

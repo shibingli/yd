@@ -1,5 +1,13 @@
 # 验收记录（verification）
 
+
+> **历史记录 | Historical record**：本文记录的是当时那次验证的数值与版本（Go 1.27.3、生成文件 131 个、
+> `ydx/waf v0.1.4` 等），不作为当前版本的真源。当前版本以 `go.mod`、`tooling/scaffold/version_generated.go`
+> 与 `tooling/versions/waf/go.mod` 为准。 | The numbers and versions in this document are the snapshot taken
+> at that verification (Go 1.27.3, 131 generated files, `ydx/waf v0.1.4`, ...), not the current source of truth.
+> The current versions live in `go.mod`, `tooling/scaffold/version_generated.go` and `tooling/versions/waf/go.mod`.
+
+
 本文件记录 **yd** 框架与脚手架在 Windows / Go 1.27.3 下的真实验收结果：
 每条都是实际执行过的命令与其真实输出，未做修饰。
 

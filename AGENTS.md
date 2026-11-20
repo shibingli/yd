@@ -65,6 +65,8 @@
 提交前逐条自检：
 
 - [ ] **密钥零硬编码**：源码、模板、测试夹具中不得出现真实密钥/口令/Token（用环境变量或 `testdata` 中的公开测试向量）。
+- [ ] **敏感文件权限跨平台**：Unix 用 `0600/0700`；Windows 必须经 `core/fssecure.Restrict` 收紧 ACL，
+      因为 `chmod` 只切换只读位。新增密钥/身份/附件目录时同批接入。
 - [ ] **国密合规**：涉及敏感数据（身份证、银行卡、口令）的加解密必须走 `guomi`（SM2/SM3/SM4），禁止 MD5/SHA1 用于口令存储。
 - [ ] **口令存储**：必须使用 `guomi.HashPassword`（SM3 + 盐 + 迭代），比较必须 `subtle.ConstantTimeCompare`。
 - [ ] **传输加密**：前端敏感字段提交必须声明式触发 SM2 前置加密（`data-yd-encrypt="sm2"`）。
@@ -98,7 +100,16 @@
 - [ ] **错误统一声明为哨兵**：包级 `var ErrX = errs.New("english | 中文")`；**禁止 `fmt.Errorf`**
       （改用 `errs.Detail` / `errs.Wrap` / `errs.WrapDetail`）；错误文案中英同步；
       判定只用 `errors.Is` / `errors.As`。
+      **对外错误只输出哨兵/固定类别文案，禁止把 `err.Error()` 写给客户端**（会泄露驱动报文、路径、DSN
+      与存储键）；完整错误链只写日志。
       自检：`grep -rn 'fmt\.Errorf' --include=*.go .` 无命中（`ydx/errs` 内部实现不属于本仓）。
+- [ ] **领域字符串常量化**：状态、生命周期、操作/动作、类型、模式、角色、事件名、渠道、存储后端
+      与协议枚举一律声明为类型化常量，业务代码、模板与 JS 只引用常量；裸字面量只允许出现在常量声明、
+      集中解析函数与测试夹具。跨包引用提供方常量（`ydx/workflow`、`authz`、`messaging`、
+      `attachments`、`auth`、`metricsx`），禁止在 yd 侧重抄一份。DTO/GORM 模型字段使用该类型，
+      外部输入经 `Parse`/`Valid` 归一化且未知值失败关闭；新增枚举必须同批补齐前端常量映射、
+      两份 i18n 与表驱动测试。守卫 `TestDomainStringsStayConstant` 拦截回归。
+      自检：`grep -rnE 'case "(draft|published|running|completed|pending|active|disabled|approve|reject)"' --include=*.go --include=*.tmpl .` 无命中。
 - [ ] **多租户隔离**：任何按 ID 读写实体的路径都必须校验 `TenantID`；跨租户访问返回 403/404
       且不泄露资源存在性。
 - [ ] **用户是全局身份**：登录名全局唯一；一个用户可隶属多个租户（`yd_auth_user_tenants`），

@@ -147,6 +147,10 @@
     return !!(node && doc.documentElement && doc.documentElement.contains(node));
   }
 
+  // CAPTCHA_THEMES names the values the captcha SDK accepts; the literals appear only here. |
+  // CAPTCHA_THEMES 命名验证码 SDK 接受的取值，字面量只在这里出现。
+  var CAPTCHA_THEMES = {LIGHT: 'light', DARK: 'dark', AUTO: 'auto', SYSTEM: 'system'};
+
   function currentLocale() {
     var lang = doc.documentElement ? doc.documentElement.getAttribute('lang') : '';
     if (!lang && win.navigator) {
@@ -157,11 +161,11 @@
 
   function currentTheme() {
     var theme = doc.documentElement ? doc.documentElement.getAttribute('data-theme') : '';
-    theme = (theme || 'auto').toLowerCase();
-    if (theme === 'system') {
-      return 'auto';
+    theme = (theme || CAPTCHA_THEMES.AUTO).toLowerCase();
+    if (theme === CAPTCHA_THEMES.SYSTEM) {
+      return CAPTCHA_THEMES.AUTO;
     }
-    return theme === 'light' || theme === 'dark' ? theme : 'auto';
+    return theme === CAPTCHA_THEMES.LIGHT || theme === CAPTCHA_THEMES.DARK ? theme : CAPTCHA_THEMES.AUTO;
   }
 
   function tokenInput(host) {

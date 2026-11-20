@@ -7,9 +7,22 @@
   Realtime refreshes swap this region only: yd-message.js refetches /messages/{id}/history and morphs it into
   #yd-message-thread-body, so the composer's draft, attachment chips and editor instance survive.
 
-  数据契约 | Data contract: .Thread（[]messageView）。
+  数据契约 | Data contract: .Thread（[]messageView）、.ConversationID、.HasEarlier、.NextLimit。
 */}}
 {{- define "portal/partials/messages/history" -}}
+{{- if .HasEarlier }}
+<div class="yd-msg-thread__earlier">
+  {{- if .NextLimit }}
+  <a class="yd-btn yd-btn--ghost yd-btn--sm" href="/messages/{{ .ConversationID }}?limit={{ .NextLimit }}"
+     hx-get="/messages/{{ .ConversationID }}/history?limit={{ .NextLimit }}"
+     hx-target="#yd-message-thread-body" hx-swap="innerMorph">
+    {{ template "partials/icon" "lucide-history" }}{{ tr "message.load_earlier" }}
+  </a>
+  {{- else }}
+  <span class="yd-hint">{{ tr "message.history_limit" }}</span>
+  {{- end }}
+</div>
+{{- end }}
 {{- range .Thread }}
 {{ template "partials/messages/message" . }}
 {{- else }}

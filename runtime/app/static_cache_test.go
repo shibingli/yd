@@ -25,7 +25,7 @@ func staticFSWithAppJS(t *testing.T) afs.FS {
 func TestStaticCachePrefersImmutableOnlyForVersionedAssets(t *testing.T) {
 	static := staticFSWithAppJS(t)
 	a := newTestApp(t, nil, WithStaticFS(static))
-	a.Use(staticCacheMiddleware(false))
+	a.Use(staticCacheMiddleware(false, nil))
 
 	const hash = "0123abcd"
 	versioned := doRequest(t, a, http.MethodGet, "/static/js/app.js?v="+hash, nil)
@@ -38,7 +38,7 @@ func TestStaticCachePrefersImmutableOnlyForVersionedAssets(t *testing.T) {
 	}
 
 	prod := newTestApp(t, nil, WithStaticFS(staticFSWithAppJS(t)))
-	prod.Use(staticCacheMiddleware(true))
+	prod.Use(staticCacheMiddleware(true, prod.staticFS))
 	cached := doRequest(t, prod, http.MethodGet, "/static/js/app.js?v="+hash, nil)
 	if got := cached.Header().Get("Cache-Control"); got != staticCacheImmutable {
 		t.Errorf("production versioned Cache-Control = %q, want %q | 生产期带版本 Cache-Control = %q，期望 %q",
@@ -55,5 +55,24 @@ func TestStaticCachePrefersImmutableOnlyForVersionedAssets(t *testing.T) {
 	if got := forged.Header().Get("Cache-Control"); got != staticCacheRevalidate {
 		t.Errorf("production forged version Cache-Control = %q, want %q | 生产期伪造版本 Cache-Control = %q，期望 %q",
 			got, staticCacheRevalidate, got, staticCacheRevalidate)
+	}
+	// 不存在的文件即使带合法形态的哈希也必须校验，404 不得被共享缓存一年。 |
+	// A missing file must revalidate even with a well-formed hash; a 404 must never be cached for a year.
+	missing := doRequest(t, prod, http.MethodGet, "/static/js/missing.js?v="+hash, nil)
+	if missing.Code != http.StatusNotFound {
+		t.Errorf("missing asset status = %d, want %d | 缺失资源状态 = %d，期望 %d",
+			missing.Code, http.StatusNotFound, missing.Code, http.StatusNotFound)
+	}
+	if got := missing.Header().Get("Cache-Control"); got != staticCacheRevalidate {
+		t.Errorf("missing asset Cache-Control = %q, want %q | 缺失资源 Cache-Control = %q，期望 %q",
+			got, staticCacheRevalidate, got, staticCacheRevalidate)
+	}
+	// 共享脚本 bundle 由精确路由在内存中生成，静态树里没有文件；带内容哈希时仍应缓存一年。 |
+	// The shared script bundle is generated in memory by an exact route and has no file in the static
+	// tree; a content-hashed URL must still be immutable.
+	bundle := doRequest(t, prod, http.MethodGet, "/static/js/yd-bundle.js?v="+hash+"&part=0", nil)
+	if got := bundle.Header().Get("Cache-Control"); got != staticCacheImmutable {
+		t.Errorf("bundle Cache-Control = %q, want %q | bundle Cache-Control = %q，期望 %q",
+			got, staticCacheImmutable, got, staticCacheImmutable)
 	}
 }

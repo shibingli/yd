@@ -11,7 +11,7 @@
   the hidden field still travels with the main form. The explicit upload button remains for no-script use and retries,
   and the chip carries its own remove button.
 
-  数据契约 | Data contract: .ActiveConversation、.Catalog、.CanSend、.CanSystem、.Lang。
+  数据契约 | Data contract: .ActiveConversation、.Catalog、.CanSend、.CanSystem、.Lang、.TypeNormal、.TypeAnnouncement。
 */}}
 {{- define "portal/partials/messages/composer" -}}
 {{- $system := .ActiveConversation.IsSystem -}}
@@ -21,8 +21,8 @@
 {{- else if $system -}}{{- $canPost = .CanSystem -}}
 {{- else -}}{{- $canPost = .CanSend -}}{{- end -}}
 {{- $action := "/messages" -}}
-{{- $defaultType := "normal" -}}
-{{- if $system -}}{{- $action = "/mgr/messages/system" -}}{{- $defaultType = "announcement" -}}{{- end -}}
+{{- $defaultType := .TypeNormal -}}
+{{- if $system -}}{{- $action = "/mgr/messages/system" -}}{{- $defaultType = .TypeAnnouncement -}}{{- end -}}
 <div class="yd-msg-composer" id="yd-msg-composer">
   {{- if $canPost }}
   <form id="yd-msg-composer-form" class="yd-msg-composer__form" method="post" action="{{ $action }}"

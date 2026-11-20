@@ -57,6 +57,10 @@
     因此这些端点每一个都在服务端挂了 authz.Require / authz.Allow。
 */}}
 {{- define "partials/users/row" -}}
+{{- /* 该片段以行本身为点号执行，读不到页面级 .Values；守卫模式在声明处写一次。 |
+       This fragment is executed with the row as its dot and cannot read a page-level .Values;
+       the guard mode is declared once here. */ -}}
+{{- $guardDisable := "disable" -}}
 <tr class="yd-table__row" id="yd-user-{{.ID}}">
   <td class="yd-table__td">
     <span class="yd-avatar yd-avatar--sm" aria-hidden="true">{{.Initials}}</span>
@@ -83,7 +87,7 @@
     <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm"
             hx-get="/users/{{.ID}}/edit" hx-target="#yd-user-form-body" hx-swap="innerHTML"
             data-yd-modal-open="yd-user-dialog"
-            data-yd-perm="{{ perm "PermUserUpdate" }}" data-yd-perm-mode="disable"
+            data-yd-perm="{{ perm "PermUserUpdate" }}" data-yd-perm-mode="{{ $guardDisable }}"
             data-yd-i18n="action.edit">{{tr "action.edit"}}</button>
     {{if .Disabled}}
     <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm"
@@ -109,7 +113,7 @@
     <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm"
             hx-post="/users/{{.ID}}/rotate_key" hx-target="#yd-users-table" hx-swap="outerMorph"
             hx-confirm="{{tr "users.rotate_key_confirm"}}"
-            data-yd-role="{{ role "RoleAdmin" }}" data-yd-role-mode="disable"
+            data-yd-role="{{ role "RoleAdmin" }}" data-yd-role-mode="{{ $guardDisable }}"
             data-yd-i18n="users.action.rotate_key"
             data-yd-i18n-attr="title:users.action.rotate_key_hint, hx-confirm:users.rotate_key_confirm"
             title="{{tr "users.action.rotate_key_hint"}}">{{tr "users.action.rotate_key"}}</button>

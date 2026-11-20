@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"{{ .YdModule }}/http/chart"
+	"{{ .YdModule }}/security/auth"
+	"{{ .YdModule }}/security/authz"
 	"{{ .YdxModule }}/router"
 )
 
@@ -86,7 +88,14 @@ func (c *Controller) UIKit(ctx *router.Ctx) {
 		"RowTemplate":   template.HTML(`<input class="yd-input" type="text" name="items[]" value="" data-yd-i18n-attr="aria-label:showcase.label.dynamic_rows" aria-label="` + label("showcase.label.dynamic_rows", "Dynamic rows") + `">`), //nolint:gosec // fixed sample markup, no user data | 固定示例标记，无用户数据
 		"FilterFields":  template.HTML(`<input class="yd-input" type="search" name="q" value="" data-yd-i18n-attr="aria-label:ui.search" aria-label="` + label("ui.search", "Search") + `">`), //nolint:gosec // fixed sample markup, no user data | 固定示例标记，无用户数据
 		"ActionButtons": template.HTML(`<button type="button" class="yd-btn yd-btn--danger yd-btn--sm" data-yd-i18n="ui.delete">` + label("ui.delete", "Delete") + `</button>`), //nolint:gosec // fixed sample markup, no user data | 固定示例标记，无用户数据
-		"PageStyles":    messagePageStyles,
-		"PageScripts":   []string{"/static/js/vendored/easymde.min.js"},
+		// 示例里的状态与角色取值来自注册表/领域常量，模板不再写机器字面量。 |
+		// The sample status and role values come from the registry/domain constants; the template
+		// no longer repeats machine literals.
+		"StatusActive":   auth.StatusActive,
+		"StatusDisabled": auth.StatusDisabled,
+		"RoleAdmin":      authz.RoleAdmin,
+		"RoleMember":     authz.RoleMember,
+		"PageStyles":     messagePageStyles,
+		"PageScripts":    []string{"/static/js/vendored/easymde.min.js"},
 	}))
 }

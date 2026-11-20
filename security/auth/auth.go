@@ -43,9 +43,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/shibingli/ydx/guomi"
 	"github.com/shibingli/ydx/base64"
 	"github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/guomi"
 	ydlog "github.com/shibingli/ydx/log"
 )
 
@@ -183,7 +183,10 @@ func NewService(store Store, o Options) (*Service, error) {
 
 	now := o.Now
 	if now == nil {
-		now = time.Now
+		// The framework writes UTC everywhere (GORM's NowFunc is UTC too), so the default clock
+		// must not leak the host's local zone into credentials or role timestamps. |
+		// 框架统一写 UTC（GORM 的 NowFunc 也是 UTC），默认时钟不得把主机本地时区带进凭据或角色时间戳。
+		now = func() time.Time { return time.Now().UTC() }
 	}
 
 	s := &Service{

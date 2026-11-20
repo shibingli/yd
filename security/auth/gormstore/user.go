@@ -952,6 +952,154 @@ func (s *Store) SetDefaultTenant(ctx context.Context, userID, tenantID string) e
 	})
 }
 
+// ReplaceUserTenants atomically replaces every membership of one user and its default tenant. | ReplaceUserTenants 原子地替换
+// 一个用户的全部成员关系及其默认租户。
+//
+// One transaction locks the user row and every membership row first, validates all target tenants and role names, and
+// only then deletes, inserts and updates rows. A failure at any validation step therefore leaves the membership set
+// untouched, which is what makes this the safe path for a multi-step "add, switch default, remove" adjustment. |
+// 同一个事务先锁定用户行与全部成员关系行，校验所有目标租户与角色名，然后才执行删除、插入与更新。因此任何一步校验
+// 失败都不会改动成员关系集合，这也正是它成为「新增、切换默认、移除」多步调整安全路径的原因。
+func (s *Store) ReplaceUserTenants(ctx context.Context, userID string, memberships []auth.TenantMembership, defaultTenantID string) error {
+	userID = strings.TrimSpace(userID)
+	defaultTenantID = strings.TrimSpace(defaultTenantID)
+	if userID == "" || defaultTenantID == "" {
+		return auth.ErrTenantRequired
+	}
+	ctx, cancel := s.scoped(ctx)
+	defer cancel()
+	return s.transaction(ctx, []string{tableUsers, tableUserTenants}, func(tx *gorm.DB) error {
+		var user userRow
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", userID).First(&user).Error; err != nil {
+			return notFound(err)
+		}
+		// Read the membership snapshot before taking any membership lock: the role locks below must be acquired
+		// before the membership locks so this transaction follows the same user → role → membership order as
+		// AddUserTenant and UpdateUser, and therefore cannot deadlock with DeleteRole's role → membership order. |
+		// 在取得任何成员关系锁之前先读取成员关系快照：下面的角色锁必须先于成员关系锁，使本事务与
+		// AddUserTenant、UpdateUser 一样遵循「用户 → 角色 → 成员关系」顺序，从而不会与 DeleteRole 的
+		// 「角色 → 成员关系」顺序互相死锁。
+		var snapshot []userTenantRow
+		if err := tx.Where("user_id = ?", userID).Order("tenant_id ASC").Find(&snapshot).Error; err != nil {
+			return err
+		}
+		wanted, err := tenantReplacementPlan(user.ID, user.TenantID, memberships, defaultTenantID)
+		if err != nil {
+			return err
+		}
+		snapshotSet := make(map[string]struct{}, len(snapshot))
+		for _, row := range snapshot {
+			snapshotSet[row.TenantID] = struct{}{}
+		}
+		// Validate every target before the first write; roles are locked in a stable order shared with the other
+		// user writers. | 第一次写入之前校验全部目标；角色按与其它用户写入者共享的稳定顺序加锁。
+		for tenantID, membership := range wanted {
+			known, err := existsTenant(tx, tenantID)
+			if err != nil {
+				return err
+			}
+			if !known {
+				return auth.ErrNotFound
+			}
+			if _, present := snapshotSet[tenantID]; present && membership.Roles == nil {
+				// Keep the stored role set: it was validated when it was written. | 保留库中角色集合：它写入时已校验。
+				continue
+			}
+			if err := lockRoleNames(tx, tenantID, membership.Roles); err != nil {
+				return err
+			}
+		}
+		// Only now take the membership locks; a concurrent role deletion has already been ordered behind the role
+		// locks and a concurrent write for this user behind the user row. | 此时才取得成员关系锁：并发的角色删除
+		// 已被角色锁排序，同一用户的并发写入已被用户行锁排序。
+		var current []userTenantRow
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("user_id = ?", userID).Order("tenant_id ASC").Find(&current).Error; err != nil {
+			return err
+		}
+		existing := make(map[string]*userTenantRow, len(current))
+		for i := range current {
+			existing[current[i].TenantID] = &current[i]
+		}
+		now := time.Now().UTC()
+		for _, row := range current {
+			if _, keep := wanted[row.TenantID]; keep {
+				continue
+			}
+			if err := tx.Where("user_id = ? AND tenant_id = ?", user.ID, row.TenantID).
+				Delete(&userTenantRow{}).Error; err != nil {
+				return err
+			}
+		}
+		for tenantID, membership := range wanted {
+			if _, present := existing[tenantID]; present {
+				if membership.Roles == nil {
+					continue
+				}
+				encoded, err := encodeRoles(membership.Roles)
+				if err != nil {
+					return err
+				}
+				if err := tx.Model(&userTenantRow{}).
+					Where("user_id = ? AND tenant_id = ?", user.ID, tenantID).
+					Updates(map[string]any{"roles": encoded, "updated_at": now}).Error; err != nil {
+					return err
+				}
+				continue
+			}
+			row, err := userTenantToRow(user.ID, tenantID, membership.Roles, tenantID == defaultTenantID, now)
+			if err != nil {
+				return err
+			}
+			if err := tx.Create(&row).Error; err != nil {
+				if isDuplicate(err) {
+					return errs.WrapDetail(err, auth.ErrConflict, "the user already belongs to that tenant | 用户已属于该租户")
+				}
+				return err
+			}
+		}
+		if err := tx.Model(&userTenantRow{}).Where("user_id = ?", user.ID).
+			Updates(map[string]any{"is_default": false, "updated_at": now}).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&userTenantRow{}).Where("user_id = ? AND tenant_id = ?", user.ID, defaultTenantID).
+			Updates(map[string]any{"is_default": true, "updated_at": now}).Error; err != nil {
+			return err
+		}
+		return tx.Model(&userRow{}).Where("id = ?", user.ID).
+			Updates(map[string]any{"default_tenant_id": defaultTenantID, "updated_at": now}).Error
+	})
+}
+
+// tenantReplacementPlan normalises and validates a replacement set without touching the database. | tenantReplacementPlan
+// 在不触达数据库的前提下归一化并校验一份替换集合。
+func tenantReplacementPlan(userID, homeTenantID string, memberships []auth.TenantMembership, defaultTenantID string) (map[string]auth.TenantMembership, error) {
+	if len(memberships) == 0 {
+		return nil, errs.Detail(auth.ErrInvalidInput, "at least one membership is required for user %[1]q | 用户 %[1]q 至少需要一条成员关系", userID)
+	}
+	wanted := make(map[string]auth.TenantMembership, len(memberships))
+	for _, membership := range memberships {
+		tenantID := strings.TrimSpace(membership.TenantID)
+		if tenantID == "" {
+			return nil, errs.Detail(auth.ErrInvalidInput, "a membership names no tenant | 有一条成员关系没有指明租户")
+		}
+		if _, dup := wanted[tenantID]; dup {
+			return nil, errs.Detail(auth.ErrInvalidInput, "tenant %[1]q appears twice | 租户 %[1]q 出现了两次", tenantID)
+		}
+		wanted[tenantID] = auth.TenantMembership{TenantID: tenantID, Roles: membership.Roles}
+	}
+	if _, ok := wanted[homeTenantID]; !ok {
+		return nil, errs.Detail(auth.ErrConflict, "the home tenant cannot be removed | 身份租户不可移除")
+	}
+	if _, ok := wanted[defaultTenantID]; !ok {
+		return nil, errs.Detail(auth.ErrInvalidInput, "the default tenant must be one of the memberships | 默认租户必须是成员租户之一")
+	}
+	return wanted, nil
+}
+
+// The compiler pins the optional capability. | 编译期固定可选能力。
+var _ auth.TenantReplacer = (*Store)(nil)
+
 // lockRoleNames locks every named role of the tenant in a stable order and reports an unknown name.
 // The shared locks serialise role assignment with DeleteRole; sorting prevents two writers with
 // different role sets from deadlocking. | lockRoleNames 按稳定顺序锁定租户内的每个命名角色，并报告未知角色。

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"{{ .YdModule }}/core/envx"
+	"{{ .YdxModule }}/config"
 )
 
 // 元信息常量由 yd new 依据脚手架参数写入；需要改动请回到脚手架模板重新生成。
@@ -176,6 +177,28 @@ func Env() string {
 	}
 	return EnvDevelopment
 }
+
+// RuntimeEnv returns the effective runtime environment: app.env from the loaded configuration wins,
+// and YD_APP_ENV is the fallback when the configuration is absent or leaves the key empty. Security
+// decisions must use this instead of Env() alone: a deployment that writes `app.env: production` in
+// configs/config.yaml, without exporting YD_APP_ENV, is still production. |
+// RuntimeEnv 返回有效运行环境：已加载配置的 app.env 优先；配置缺失或该键为空时回退 YD_APP_ENV。
+// 安全判定必须用它而不是只看 Env()：只在 configs/config.yaml 写 `app.env: production`、没有导出
+// YD_APP_ENV 的部署仍然是生产环境。
+func RuntimeEnv(cfg *config.Config) string {
+	if cfg != nil {
+		if value := strings.TrimSpace(cfg.GetString("app.env")); value != "" {
+			return envx.Normalize(value)
+		}
+	}
+	return Env()
+}
+
+// Production reports whether the effective environment is production. | Production 报告有效环境是否为生产。
+func Production(cfg *config.Config) bool { return envx.IsProduction(RuntimeEnv(cfg)) }
+
+// Development reports whether the effective environment is development. | Development 报告有效环境是否为开发。
+func Development(cfg *config.Config) bool { return envx.IsDevelopment(RuntimeEnv(cfg)) }
 
 // IsProduction reports whether the runtime environment is production.
 // The prod alias is accepted. | IsProduction 报告当前是否为生产环境；接受 prod 短别名。

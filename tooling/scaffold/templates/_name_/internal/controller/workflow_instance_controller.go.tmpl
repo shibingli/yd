@@ -7,6 +7,7 @@ package controller
 import (
 	"net/http"
 	"strings"
+	"time"
 
 	"{{ .YdModule }}/security/authz"
 	"{{ .YdxModule }}/router"
@@ -25,6 +26,11 @@ type workflowInstanceViewData struct {
 	CanWithdraw  bool
 	CanTerminate bool
 	CanSignal    bool
+	// CanComment gates the instance comment form. | CanComment 控制实例评论表单是否出现。
+	CanComment bool
+	// WithdrawExpired reports that the initiator's withdrawal window has closed. | WithdrawExpired
+	// 报告发起人的撤回窗口已经关闭。
+	WithdrawExpired bool
 	// BasePath is the action prefix, portal or management. | BasePath 是动作前缀，门户或后台。
 	BasePath string
 }
@@ -200,13 +206,37 @@ func (c *Controller) workflowInstanceDrawerAt(ctx *router.Ctx, basePath string, 
 		}
 	}
 	adminArea := strings.HasPrefix(basePath, "/mgr")
+	canWithdraw := detail.Instance.Status == workflow.InstanceRunning &&
+		(actor.Admin || (!adminArea && detail.Instance.InitiatorID == actor.ID))
+	withdrawExpired := false
+	if canWithdraw && !actor.Admin {
+		// The engine applies the design's withdrawal window over the configured default; mirror
+		// that rule here so the form disappears exactly when the endpoint would refuse it. |
+		// 引擎用设计里的撤回窗口覆盖配置默认值；这里沿用同一规则，使表单恰好在端点会拒绝时消失。
+		window := c.workflow.Options().WithdrawWindow
+		if raw := strings.TrimSpace(detail.Design.Settings.WithdrawWindow); raw != "" {
+			if parsed, err := time.ParseDuration(raw); err == nil {
+				window = parsed
+			}
+		}
+		if window > 0 && time.Since(detail.Instance.StartedAt) > window {
+			canWithdraw = false
+			withdrawExpired = true
+		}
+	}
+	canComment := authz.Can(ctx.Request.Context(), authz.PermWorkflowUse)
+	if adminArea {
+		canComment = authz.Can(ctx.Request.Context(), authz.PermWorkflowAdmin)
+	}
 	view := workflowInstanceViewData{
-		Detail:       detail,
-		Tasks:        detail.Tasks,
-		BasePath:     basePath,
-		CanWithdraw:  detail.Instance.Status == workflow.InstanceRunning && (actor.Admin || (!adminArea && detail.Instance.InitiatorID == actor.ID)),
-		CanTerminate: detail.Instance.Status == workflow.InstanceRunning && actor.Admin && adminArea,
-		CanSignal:    detail.Instance.Status == workflow.InstanceRunning && actor.Admin && adminArea,
+		Detail:          detail,
+		Tasks:           detail.Tasks,
+		BasePath:        basePath,
+		CanWithdraw:     canWithdraw,
+		CanTerminate:    detail.Instance.Status == workflow.InstanceRunning && actor.Admin && adminArea,
+		CanSignal:       detail.Instance.Status == workflow.InstanceRunning && actor.Admin && adminArea,
+		CanComment:      canComment,
+		WithdrawExpired: withdrawExpired,
 	}
 	c.render(ctx, http.StatusOK, TplWorkflowInstanceDrawer, c.view(ctx, "实例详情 | Instance", map[string]any{
 		"View":            view,
@@ -221,6 +251,8 @@ func (c *Controller) workflowInstanceDrawerAt(ctx *router.Ctx, basePath string, 
 		"CanWithdraw":     view.CanWithdraw,
 		"CanTerminate":    view.CanTerminate,
 		"CanSignal":       view.CanSignal,
+		"CanComment":      view.CanComment,
+		"WithdrawExpired": view.WithdrawExpired,
 		"BasePath":        view.BasePath,
 	}))
 }
@@ -334,13 +366,103 @@ func (c *Controller) SignalWorkflowInstance(ctx *router.Ctx) {
 	c.workflowInstanceRefresh(ctx, tenantID, actor)
 }
 
+// PortalWorkflowComment posts one free-form comment from the portal instance drawer. |
+// PortalWorkflowComment 从门户实例抽屉发表一条自由评论。
+//
+// @Summary Comment on an instance (portal) | 门户发表实例评论
+// @Description Adds a comment visible to every participant of the instance and returns the refreshed comment block. |
+// 添加一条对该实例全部参与者可见的评论，并返回刷新后的评论区块。
+// @Tags workflow
+// @Accept application/x-www-form-urlencoded
+// @Produce html
+// @Param id path string true "Instance id | 实例 ID"
+// @Param body formData string true "Comment body | 评论正文"
+// @Success 200 {string} string "comment block | 评论区块"
+// @Failure 403 {string} string "instance not visible | 实例不可见"
+// @Failure 422 {string} string "empty comment | 评论为空"
+// @Security BearerAuth
+// @Router /workflow/instances/{id}/comments [post]
+func (c *Controller) PortalWorkflowComment(ctx *router.Ctx) { c.addWorkflowComment(ctx, true) }
+
+// MgrWorkflowComment posts one free-form comment from the management instance drawer. |
+// MgrWorkflowComment 从后台实例抽屉发表一条自由评论。
+//
+// @Summary Comment on an instance (management) | 后台发表实例评论
+// @Description Adds a comment to any instance in the tenant; the refreshed block is returned to the drawer. |
+// 为租户内任意实例添加评论，并把刷新后的评论区块返回抽屉。
+// @Tags workflow
+// @Accept application/x-www-form-urlencoded
+// @Produce html
+// @Param id path string true "Instance id | 实例 ID"
+// @Param body formData string true "Comment body | 评论正文"
+// @Success 200 {string} string "comment block | 评论区块"
+// @Failure 422 {string} string "empty comment | 评论为空"
+// @Security BearerAuth
+// @Router /mgr/workflow-instances/{id}/comments [post]
+func (c *Controller) MgrWorkflowComment(ctx *router.Ctx) { c.addWorkflowComment(ctx, false) }
+
+// addWorkflowComment is the shared implementation of the portal and management comment posts. |
+// addWorkflowComment 是门户与后台评论提交的共享实现。
+func (c *Controller) addWorkflowComment(ctx *router.Ctx, portal bool) {
+	if !c.workflowServiceOrFail(ctx) {
+		return
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	actor := c.workflowActor(ctx)
+	instanceID := strings.TrimSpace(ctx.Param("id"))
+	detail, err := c.workflow.InstanceDetail(ctx.Request.Context(), tenantID, instanceID)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	if portal {
+		visible, visibleErr := c.workflow.InstanceVisible(ctx.Request.Context(), tenantID, detail.Instance, actor)
+		if visibleErr != nil {
+			c.failService(ctx, visibleErr)
+			return
+		}
+		if !visible {
+			c.fail(ctx, http.StatusForbidden, msgForbidden)
+			return
+		}
+	}
+	body := strings.TrimSpace(ctx.FormValue(FieldWorkflowCommentBody))
+	if body == "" {
+		c.failService(ctx, workflow.ErrInvalidInput)
+		return
+	}
+	if _, err := c.workflow.AddComment(ctx.Request.Context(), tenantID, actor, instanceID, workflow.CommentInput{Body: body}); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	detail, err = c.workflow.InstanceDetail(ctx.Request.Context(), tenantID, instanceID)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	basePath := "/workflow/instances"
+	if !portal {
+		basePath = "/mgr/workflow-instances"
+	}
+	c.toast(ctx, "评论已发表 | Comment posted")
+	c.render(ctx, http.StatusOK, TplWorkflowComments, c.view(ctx, "审批意见 | Comments", map[string]any{
+		"InstanceID": instanceID,
+		"Comments":   detail.Comments,
+		"BasePath":   basePath,
+		"CanComment": true,
+	}))
+}
+
 // workflowInstanceRefresh refreshes the current page after an instance action. | workflowInstanceRefresh
 // 在实例动作后刷新当前页面。
 func (c *Controller) workflowInstanceRefresh(ctx *router.Ctx, tenantID string, actor workflow.Actor) {
 	// A drawer action targets #yd-workspace and must return a whole page; a row action targets
 	// the list container and only needs the table fragment. | 抽屉动作的目标是 #yd-workspace，
 	// 必须返回整页；行内动作的目标是列表容器，只需表格片段。
-	if strings.TrimPrefix(strings.TrimSpace(ctx.Request.Header.Get("HX-Target")), "#") == "yd-workspace" {
+	if htmxTargetID(ctx) == "yd-workspace" {
 		if strings.HasPrefix(ctx.Path(), "/mgr/") {
 			// Preserve the filters and page the operator was looking at. | 保留操作人正在查看的筛选条件与页码。
 			c.renderWorkflowInstancesPage(ctx, tenantID,
@@ -350,8 +472,8 @@ func (c *Controller) workflowInstanceRefresh(ctx *router.Ctx, tenantID string, a
 				pageNumberFromQuery(ctx, firstNonEmpty(field(ctx, "return_page"), workflowCurrentQuery(ctx, "page"))))
 			return
 		}
-		c.renderWorkflowTasksPage(ctx, tenantID, actor, "started",
-			workflowCurrentQuery(ctx, FieldKeyword),
+		c.renderWorkflowTasksPage(ctx, tenantID, actor, workflowTabStarted,
+			workflowCurrentQuery(ctx, FieldKeyword), "",
 			pageNumberFromQuery(ctx, workflowCurrentQuery(ctx, "page")))
 		return
 	}
@@ -389,6 +511,6 @@ func (c *Controller) workflowInstanceRefresh(ctx *router.Ctx, tenantID string, a
 	}
 	c.render(ctx, http.StatusOK, TplWorkflowTaskList, c.view(ctx, "我发起的 | Started", map[string]any{
 		"Instances": page.Items, "Total": page.Total, "Page": page.Page, "PageSize": page.PageSize,
-		"Tab": "started", "Keyword": keyword, "OOB": true,
+		"Tab": workflowTabStarted, "Keyword": keyword, "OOB": true,
 	}))
 }

@@ -59,6 +59,12 @@
       **之前**校验，改密必须在 `ChangePassword` **之前**校验；令牌一次性消费，失败统一 `captcha.failed` 文案；
       `captcha.secret` 生产必须注入；登录页与账号页共用 `partials/captcha.html`，`yd-captcha.js` 负责挂载、
       令牌写入、提交守卫与 4xx 重置；Redis 客户端只由 `internal/service.NewRedis` 打开一次。
+- [ ] **领域字符串常量化**：状态、生命周期、操作/动作、类型、模式、角色、事件名与渠道一律使用类型化常量，
+      业务代码、模板与 JS 不得重复书写裸字面量；裸字面量只允许出现在常量声明、集中解析函数（未知值失败关闭）
+      与测试夹具。跨包引用 `{{ .YdxModule }}/workflow`、`authz`、`messaging`、`attachments`、`auth`、
+      `metricsx` 的提供方常量，禁止另抄一份。DTO/模型字段使用该类型；新增枚举同批补齐前端常量映射、
+      中英 i18n 与表驱动测试。
+      自检：`grep -rnE 'case "(draft|published|running|completed|pending|active|disabled|approve|reject)"' --include=*.go --include=*.tmpl .` 无命中。
 - [ ] **前端组件库优先**：写任何页面控件前先查 `templates/components/**` 与 `/ui-kit`；
       可见文本框/搜索框用 `components.form.field`（紧凑筛选行加 `LabelHidden` 与 `LeadingIcon`），
       下拉用 `components.form.select`，日期用 `components.form.date` / `.time` / `.datetime`，

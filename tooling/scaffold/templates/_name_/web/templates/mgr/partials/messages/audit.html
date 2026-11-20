@@ -65,11 +65,7 @@
     {{template "components.form.select" (dict
       "ID" "yd-admin-folder" "Name" "folder" "LabelHidden" true
       "Label" (tr "message.folder_label") "LabelKey" "message.folder_label"
-      "Options" (list
-        (dict "Value" "all" "Key" "message.folder.all" "Selected" (eq .Filters.Folder "all"))
-        (dict "Value" "sent" "Key" "message.folder.sent" "Selected" (eq .Filters.Folder "sent"))
-        (dict "Value" "system" "Key" "message.folder.system" "Selected" (eq .Filters.Folder "system"))
-        (dict "Value" "pinned" "Key" "message.folder.pinned" "Selected" (eq .Filters.Folder "pinned"))))}}
+      "Options" .Folders)}}
     <button type="submit" class="yd-btn">{{ template "partials/icon" "lucide-search" }}{{ tr "ui.search" }}</button>
   </form>
   <section class="yd-card yd-section" aria-labelledby="yd-admin-results">

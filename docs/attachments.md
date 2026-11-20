@@ -122,6 +122,9 @@ message:
 `YD_MESSAGE_ATTACHMENT_STORE=redis`、`YD_MESSAGE_ATTACHMENT_DIR=/srv/yd/attachments`。
 
 本地后端使用原子写（临时文件 + rename）并拒绝空键、绝对路径、`..` 与不安全字符；
+创建根目录时 Unix 施加 `0750`，Windows 经 `core/fssecure` 用 `icacls` 设置「当前用户 / System /
+Administrators」显式 ACL（`chmod` 在 Windows 只切换只读位）。文件系统不支持 ACL 时附件整体禁用并告警，
+不会静默退回宽权限目录；
 Redis 后端在写入前再次校验键前缀与非法字符。
 
 ## 6. 权限

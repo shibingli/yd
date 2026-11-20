@@ -203,6 +203,8 @@ Node C L1 ─┘
   其他节点的失效事件误判为自己的回声而忽略。
 - **Prefix/Channel 必须唯一**：多个部署共享同一个 Redis 时，`cache.prefix`（进而默认频道
   `<prefix>events`）或显式 `cache.redis.channel` 必须按部署隔离；Redis 的 Pub/Sub 频道不按 DB 隔离。
+  `cache.deployment_id` 提供第二层隔离：事件带部署标识，键按部署前缀化，共享频道上不匹配的部署
+  事件会被忽略；共用 Redis 的每个部署仍应配置唯一值。
 - **租约与探活一起调**：`lease` 决定丢事件时的陈旧上界，`health_interval` 决定断开后多久被发现；
   建议 `health_interval <= lease`。缩短 lease 会让 L1 更及时地回到 L2，但增加 Redis 读。
 - **Redis Cluster**：应用层 `PUBLISH` 是集群级广播，一条订阅即可；不要改用 keyspace notifications，
@@ -423,7 +425,8 @@ cache:
 
 ```yaml
 cache:
-  prefix: "yd:cache:"  # Redis key prefix | Redis 键前缀
+  prefix: "yd:cache:"  # Redis 键前缀 | Redis key prefix
+  deployment_id: ""    # 共享 Redis 时每个部署唯一 | unique per deployment when Redis is shared
   lease: 30s
   load_timeout: 30s
   event_buffer: 256

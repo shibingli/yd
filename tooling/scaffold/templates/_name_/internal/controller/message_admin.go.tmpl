@@ -205,6 +205,9 @@ func (c *Controller) renderAdminPage(ctx *router.Ctx, notice string) {
 	}
 	data := c.pageView(ctx, "消息治理 | Message moderation", page.data())
 	data["AdminMode"] = true
+	// The management filter offers every folder except unread; the portal list keeps unread. |
+	// 管理筛选提供除未读之外的全部文件夹；门户列表保留未读。
+	data["Folders"] = messageFolderOptions(filters.Folder, true)
 	data["Audit"] = auditViewsOf(audit)
 	data["AuditTotal"] = auditTotal
 	// 治理页共用消息卡片与其附件预览，并可能在抽屉里打开 EasyMDE；它与门户消息页加载同一组页面资产。
@@ -361,7 +364,8 @@ func (c *Controller) NewMessageTypeDrawer(ctx *router.Ctx) {
 		return
 	}
 	c.render(ctx, http.StatusOK, TplMessageTypeDrawer, c.pageView(ctx, "新建消息类型 | New message type", map[string]any{
-		"Mode": "create",
+		"Mode": formModeCreate,
+		"IsEdit": false,
 		"Item": messageTypeView{},
 	}))
 }
@@ -399,7 +403,8 @@ func (c *Controller) EditMessageTypeDrawer(ctx *router.Ctx) {
 		return
 	}
 	c.render(ctx, http.StatusOK, TplMessageTypeDrawer, c.pageView(ctx, "编辑消息类型 | Edit message type", map[string]any{
-		"Mode": "edit",
+		"Mode": formModeEdit,
+		"IsEdit": true,
 		"Item": messageTypeViewsOf([]messaging.MessageType{*item}, c.lang(ctx))[0],
 	}))
 }
@@ -548,6 +553,17 @@ func (c *Controller) DeleteMessageType(ctx *router.Ctx) {
 	c.render(ctx, http.StatusOK, TplMessageSettingsBody, data)
 }
 
+// messageTagKindOptions builds the group/label choices of the tag drawer. | messageTagKindOptions
+// 构建标签抽屉的分组/标签选项。
+func messageTagKindOptions(selected string) []map[string]any {
+	group := string(messaging.TagGroup)
+	label := string(messaging.TagLabel)
+	return []map[string]any{
+		{"Value": group, "Key": "message.settings.group", "Selected": selected == group},
+		{"Value": label, "Key": "message.settings.tag", "Selected": selected == label},
+	}
+}
+
 // NewMessageTagDrawer renders the create group/label drawer. | NewMessageTagDrawer 渲染新建分组/标签抽屉。
 //
 // @Summary Create group/label drawer | 新建分组/标签抽屉
@@ -570,9 +586,11 @@ func (c *Controller) NewMessageTagDrawer(ctx *router.Ctx) {
 		kind = string(messaging.TagLabel)
 	}
 	c.render(ctx, http.StatusOK, TplMessageTagDrawer, c.pageView(ctx, "新建分组/标签 | New group/tag", map[string]any{
-		"Mode": "create",
-		"Kind": kind,
-		"Item": tagView{},
+		"Mode":   formModeCreate,
+		"IsEdit": false,
+		"Kind":   kind,
+		"Kinds":  messageTagKindOptions(kind),
+		"Item":   tagView{},
 	}))
 }
 
@@ -607,7 +625,8 @@ func (c *Controller) EditMessageTagDrawer(ctx *router.Ctx) {
 		for _, item := range list {
 			if item.ID == ctx.Param("id") {
 				c.render(ctx, http.StatusOK, TplMessageTagDrawer, c.pageView(ctx, "编辑分组/标签 | Edit group/tag", map[string]any{
-					"Mode": "edit",
+					"Mode": formModeEdit,
+					"IsEdit": true,
 					"Kind": string(item.Kind),
 					"Item": tagViewsOf([]messaging.Tag{item}, c.lang(ctx))[0],
 				}))
